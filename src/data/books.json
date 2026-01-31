@@ -1,0 +1,674 @@
+{
+  "10": {
+    "book_number": 10,
+    "color": "#ccccff",
+    "short_ru": "Быт",
+    "long_ru": "Бытие",
+    "short_en": "Gen",
+    "long_en": "Genesis"
+  },
+  "20": {
+    "book_number": 20,
+    "color": "#ccccff",
+    "short_ru": "Исх",
+    "long_ru": "Исход",
+    "short_en": "Exo",
+    "long_en": "Exodus"
+  },
+  "30": {
+    "book_number": 30,
+    "color": "#ccccff",
+    "short_ru": "Лев",
+    "long_ru": "Левит",
+    "short_en": "Lev",
+    "long_en": "Leviticus"
+  },
+  "40": {
+    "book_number": 40,
+    "color": "#ccccff",
+    "short_ru": "Чис",
+    "long_ru": "Числа",
+    "short_en": "Num",
+    "long_en": "Numbers"
+  },
+  "50": {
+    "book_number": 50,
+    "color": "#ccccff",
+    "short_ru": "Втор",
+    "long_ru": "Второзаконие",
+    "short_en": "Deu",
+    "long_en": "Deuteronomy"
+  },
+  "60": {
+    "book_number": 60,
+    "color": "#ffcc99",
+    "short_ru": "Нав",
+    "long_ru": "Иисус Навин",
+    "short_en": "Josh",
+    "long_en": "Joshua"
+  },
+  "70": {
+    "book_number": 70,
+    "color": "#ffcc99",
+    "short_ru": "Суд",
+    "long_ru": "Судьи",
+    "short_en": "Judg",
+    "long_en": "Judges"
+  },
+  "80": {
+    "book_number": 80,
+    "color": "#ffcc99",
+    "short_ru": "Руфь",
+    "long_ru": "Руфь",
+    "short_en": "Ruth",
+    "long_en": "Ruth"
+  },
+  "90": {
+    "book_number": 90,
+    "color": "#ffcc99",
+    "short_ru": "1Цар",
+    "long_ru": "1-я Царств",
+    "short_en": "1Sam",
+    "long_en": "1 Samuel"
+  },
+  "100": {
+    "book_number": 100,
+    "color": "#ffcc99",
+    "short_ru": "2Цар",
+    "long_ru": "2-я Царств",
+    "short_en": "2Sam",
+    "long_en": "2 Samuel"
+  },
+  "110": {
+    "book_number": 110,
+    "color": "#ffcc99",
+    "short_ru": "3Цар",
+    "long_ru": "3-я Царств",
+    "short_en": "1Kin",
+    "long_en": "1 Kings"
+  },
+  "120": {
+    "book_number": 120,
+    "color": "#ffcc99",
+    "short_ru": "4Цар",
+    "long_ru": "4-я Царств",
+    "short_en": "2Kin",
+    "long_en": "2 Kings"
+  },
+  "180": {
+    "book_number": 180,
+    "color": "#ffcc99",
+    "short_ru": "Иудф",
+    "long_ru": "Иудифь",
+    "short_en": "",
+    "long_en": ""
+  },
+  "130": {
+    "book_number": 130,
+    "color": "#ffcc99",
+    "short_ru": "1Пар",
+    "long_ru": "1-я Паралипоменон",
+    "short_en": "1Chr",
+    "long_en": "1 Chronicles"
+  },
+  "140": {
+    "book_number": 140,
+    "color": "#ffcc99",
+    "short_ru": "2Пар",
+    "long_ru": "2-я Паралипоменон",
+    "short_en": "2Chr",
+    "long_en": "2 Chronicles"
+  },
+  "145": {
+    "book_number": 145,
+    "color": "#66ff99",
+    "short_ru": "Мол",
+    "long_ru": "Молитва Манассии",
+    "short_en": "",
+    "long_en": ""
+  },
+  "150": {
+    "book_number": 150,
+    "color": "#ffcc99",
+    "short_ru": "Ездр",
+    "long_ru": "Ездра",
+    "short_en": "Ezr",
+    "long_en": "Ezra"
+  },
+  "160": {
+    "book_number": 160,
+    "color": "#ffcc99",
+    "short_ru": "Неем",
+    "long_ru": "Неемия",
+    "short_en": "Neh",
+    "long_en": "Nehemiah"
+  },
+  "165": {
+    "book_number": 165,
+    "color": "#ffcc99",
+    "short_ru": "2Езд",
+    "long_ru": "2-я Ездры",
+    "short_en": "",
+    "long_en": ""
+  },
+  "170": {
+    "book_number": 170,
+    "color": "#ffcc99",
+    "short_ru": "Тов",
+    "long_ru": "Товит",
+    "short_en": "Tob",
+    "long_en": "Tobit"
+  },
+  "190": {
+    "book_number": 190,
+    "color": "#ffcc99",
+    "short_ru": "Есф",
+    "long_ru": "Есфирь",
+    "short_en": "Esth",
+    "long_en": "Esther"
+  },
+  "192": {
+    "book_number": 192,
+    "color": "#c0c0c0",
+    "short_ru": "",
+    "long_ru": "",
+    "short_en": "",
+    "long_en": ""
+  },
+  "220": {
+    "book_number": 220,
+    "color": "#66ff99",
+    "short_ru": "Иов",
+    "long_ru": "Иов",
+    "short_en": "Job",
+    "long_en": "Job"
+  },
+  "230": {
+    "book_number": 230,
+    "color": "#66ff99",
+    "short_ru": "Пс",
+    "long_ru": "Псалтирь",
+    "short_en": "Ps",
+    "long_en": "Psalms"
+  },
+  "240": {
+    "book_number": 240,
+    "color": "#66ff99",
+    "short_ru": "Прит",
+    "long_ru": "Притчи",
+    "short_en": "Prov",
+    "long_en": "Proverbs"
+  },
+  "250": {
+    "book_number": 250,
+    "color": "#66ff99",
+    "short_ru": "Еккл",
+    "long_ru": "Екклесиаст",
+    "short_en": "Eccl",
+    "long_en": "Ecclesiastes"
+  },
+  "260": {
+    "book_number": 260,
+    "color": "#66ff99",
+    "short_ru": "Песн",
+    "long_ru": "Песня Песней",
+    "short_en": "Song",
+    "long_en": "Song of Solomon"
+  },
+  "270": {
+    "book_number": 270,
+    "color": "#66ff99",
+    "short_ru": "Прем",
+    "long_ru": "Премудрость Соломона",
+    "short_en": "Wis",
+    "long_en": "Wisdom of Solomon"
+  },
+  "280": {
+    "book_number": 280,
+    "color": "#66ff99",
+    "short_ru": "Сир",
+    "long_ru": "Сирах",
+    "short_en": "Sir",
+    "long_en": "Sirach, a.k.a, “Ecclesiasticus”"
+  },
+  "290": {
+    "book_number": 290,
+    "color": "#ff9fb4",
+    "short_ru": "Ис",
+    "long_ru": "Исаия",
+    "short_en": "Isa",
+    "long_en": "Isaiah"
+  },
+  "300": {
+    "book_number": 300,
+    "color": "#ff9fb4",
+    "short_ru": "Иер",
+    "long_ru": "Иеремия",
+    "short_en": "Jer",
+    "long_en": "Jeremiah"
+  },
+  "305": {
+    "book_number": 305,
+    "color": "#c0c0c0",
+    "short_ru": "",
+    "long_ru": "",
+    "short_en": "",
+    "long_en": ""
+  },
+  "310": {
+    "book_number": 310,
+    "color": "#ff9fb4",
+    "short_ru": "Плач",
+    "long_ru": "Плач Иеремии",
+    "short_en": "Lam",
+    "long_en": "Lamentations"
+  },
+  "315": {
+    "book_number": 315,
+    "color": "#ff9fb4",
+    "short_ru": "Посл",
+    "long_ru": "Послание Иеремии",
+    "short_en": "EpJer",
+    "long_en": ""
+  },
+  "320": {
+    "book_number": 320,
+    "color": "#ff9fb4",
+    "short_ru": "Вар",
+    "long_ru": "Варух",
+    "short_en": "Bar",
+    "long_en": "Baruch"
+  },
+  "323": {
+    "book_number": 323,
+    "color": "#c0c0c0",
+    "short_ru": "",
+    "long_ru": "",
+    "short_en": "",
+    "long_en": ""
+  },
+  "330": {
+    "book_number": 330,
+    "color": "#ff9fb4",
+    "short_ru": "Иез",
+    "long_ru": "Иезекииль",
+    "short_en": "Ezek",
+    "long_en": "Ezekiel"
+  },
+  "340": {
+    "book_number": 340,
+    "color": "#ff9fb4",
+    "short_ru": "Дан",
+    "long_ru": "Даниил",
+    "short_en": "Dan",
+    "long_en": "Daniel"
+  },
+  "345": {
+    "book_number": 345,
+    "color": "#c0c0c0",
+    "short_ru": "",
+    "long_ru": "",
+    "short_en": "",
+    "long_en": ""
+  },
+  "350": {
+    "book_number": 350,
+    "color": "#ffff99",
+    "short_ru": "Ос",
+    "long_ru": "Осия",
+    "short_en": "Hos",
+    "long_en": "Hosea"
+  },
+  "360": {
+    "book_number": 360,
+    "color": "#ffff99",
+    "short_ru": "Иоил",
+    "long_ru": "Иоиль",
+    "short_en": "Joel",
+    "long_en": "Joel"
+  },
+  "370": {
+    "book_number": 370,
+    "color": "#ffff99",
+    "short_ru": "Ам",
+    "long_ru": "Амос",
+    "short_en": "Am",
+    "long_en": "Amos"
+  },
+  "380": {
+    "book_number": 380,
+    "color": "#ffff99",
+    "short_ru": "Авд",
+    "long_ru": "Авдий",
+    "short_en": "Oba",
+    "long_en": "Obadiah"
+  },
+  "390": {
+    "book_number": 390,
+    "color": "#ffff99",
+    "short_ru": "Ион",
+    "long_ru": "Иона",
+    "short_en": "Jona",
+    "long_en": "Jonah"
+  },
+  "400": {
+    "book_number": 400,
+    "color": "#ffff99",
+    "short_ru": "Мих",
+    "long_ru": "Михей",
+    "short_en": "Mic",
+    "long_en": "Micah"
+  },
+  "410": {
+    "book_number": 410,
+    "color": "#ffff99",
+    "short_ru": "Наум",
+    "long_ru": "Наум",
+    "short_en": "Nah",
+    "long_en": "Nahum"
+  },
+  "420": {
+    "book_number": 420,
+    "color": "#ffff99",
+    "short_ru": "Авв",
+    "long_ru": "Аввакум",
+    "short_en": "Hab",
+    "long_en": "Habakkuk"
+  },
+  "430": {
+    "book_number": 430,
+    "color": "#ffff99",
+    "short_ru": "Соф",
+    "long_ru": "Софония",
+    "short_en": "Zeph",
+    "long_en": "Zephaniah"
+  },
+  "440": {
+    "book_number": 440,
+    "color": "#ffff99",
+    "short_ru": "Агг",
+    "long_ru": "Аггей",
+    "short_en": "Hag",
+    "long_en": "Haggai"
+  },
+  "450": {
+    "book_number": 450,
+    "color": "#ffff99",
+    "short_ru": "Зах",
+    "long_ru": "Захария",
+    "short_en": "Zech",
+    "long_en": "Zechariah"
+  },
+  "460": {
+    "book_number": 460,
+    "color": "#ffff99",
+    "short_ru": "Мал",
+    "long_ru": "Малахия",
+    "short_en": "Mal",
+    "long_en": "Malachi"
+  },
+  "462": {
+    "book_number": 462,
+    "color": "#d3d3d3",
+    "short_ru": "1Мак",
+    "long_ru": "1-я Маккавейская",
+    "short_en": "1Mac",
+    "long_en": "1 Maccabees"
+  },
+  "464": {
+    "book_number": 464,
+    "color": "#d3d3d3",
+    "short_ru": "2Мак",
+    "long_ru": "2-я Маккавейская",
+    "short_en": "2Mac",
+    "long_en": "2 Maccabees"
+  },
+  "466": {
+    "book_number": 466,
+    "color": "#d3d3d3",
+    "short_ru": "3Мак",
+    "long_ru": "3-я Маккавейская",
+    "short_en": "3Mac",
+    "long_en": "3 Maccabees"
+  },
+  "467": {
+    "book_number": 467,
+    "color": "#d3d3d3",
+    "short_ru": "4Ма",
+    "long_ru": "4-я Маккавейская",
+    "short_en": "4Mac",
+    "long_en": "4 Maccabees"
+  },
+  "468": {
+    "book_number": 468,
+    "color": "#d3d3d3",
+    "short_ru": "3Езд",
+    "long_ru": "3-я Ездры",
+    "short_en": "2Esd",
+    "long_en": "2 Esdras"
+  },
+  "470": {
+    "book_number": 470,
+    "color": "#ff6600",
+    "short_ru": "Мат",
+    "long_ru": "От Матфея",
+    "short_en": "Mat",
+    "long_en": "Matthew"
+  },
+  "480": {
+    "book_number": 480,
+    "color": "#ff6600",
+    "short_ru": "Мар",
+    "long_ru": "От Марка",
+    "short_en": "Mar",
+    "long_en": "Mark"
+  },
+  "490": {
+    "book_number": 490,
+    "color": "#ff6600",
+    "short_ru": "Лук",
+    "long_ru": "От Луки",
+    "short_en": "Luk",
+    "long_en": "Luke"
+  },
+  "500": {
+    "book_number": 500,
+    "color": "#ff6600",
+    "short_ru": "Ин",
+    "long_ru": "От Иоанна",
+    "short_en": "John",
+    "long_en": "John"
+  },
+  "510": {
+    "book_number": 510,
+    "color": "#00ffff",
+    "short_ru": "Деян",
+    "long_ru": "Деяния",
+    "short_en": "Acts",
+    "long_en": "Acts"
+  },
+  "660": {
+    "book_number": 660,
+    "color": "#00ff00",
+    "short_ru": "Иак",
+    "long_ru": "Иакова",
+    "short_en": "Jam",
+    "long_en": "James"
+  },
+  "670": {
+    "book_number": 670,
+    "color": "#00ff00",
+    "short_ru": "1Пет",
+    "long_ru": "1-е Петра",
+    "short_en": "1Pet",
+    "long_en": "1 Peter"
+  },
+  "680": {
+    "book_number": 680,
+    "color": "#00ff00",
+    "short_ru": "2Пет",
+    "long_ru": "2-е Петра",
+    "short_en": "2Pet",
+    "long_en": "2 Peter"
+  },
+  "690": {
+    "book_number": 690,
+    "color": "#00ff00",
+    "short_ru": "1Ин",
+    "long_ru": "1-е Иоанна",
+    "short_en": "1Jn",
+    "long_en": "1 John"
+  },
+  "700": {
+    "book_number": 700,
+    "color": "#00ff00",
+    "short_ru": "2Ин",
+    "long_ru": "2-е Иоанна",
+    "short_en": "2Jn",
+    "long_en": "2 John"
+  },
+  "710": {
+    "book_number": 710,
+    "color": "#00ff00",
+    "short_ru": "3Ин",
+    "long_ru": "3-е Иоанна",
+    "short_en": "3Jn",
+    "long_en": "3 John"
+  },
+  "720": {
+    "book_number": 720,
+    "color": "#00ff00",
+    "short_ru": "Иуд",
+    "long_ru": "Иуды",
+    "short_en": "Jud",
+    "long_en": "Jude"
+  },
+  "520": {
+    "book_number": 520,
+    "color": "#ffff00",
+    "short_ru": "Рим",
+    "long_ru": "К Римлянам",
+    "short_en": "Rom",
+    "long_en": "Romans"
+  },
+  "530": {
+    "book_number": 530,
+    "color": "#ffff00",
+    "short_ru": "1Кор",
+    "long_ru": "1-е Коринфянам",
+    "short_en": "1Cor",
+    "long_en": "1 Corinthians"
+  },
+  "540": {
+    "book_number": 540,
+    "color": "#ffff00",
+    "short_ru": "2Кор",
+    "long_ru": "2-е Коринфянам",
+    "short_en": "2Cor",
+    "long_en": "2 Corinthians"
+  },
+  "550": {
+    "book_number": 550,
+    "color": "#ffff00",
+    "short_ru": "Гал",
+    "long_ru": "К Галатам",
+    "short_en": "Gal",
+    "long_en": "Galatians"
+  },
+  "560": {
+    "book_number": 560,
+    "color": "#ffff00",
+    "short_ru": "Еф",
+    "long_ru": "К Ефесянам",
+    "short_en": "Eph",
+    "long_en": "Ephesians"
+  },
+  "570": {
+    "book_number": 570,
+    "color": "#ffff00",
+    "short_ru": "Флп",
+    "long_ru": "К Филиппийцам",
+    "short_en": "Phil",
+    "long_en": "Philippians"
+  },
+  "580": {
+    "book_number": 580,
+    "color": "#ffff00",
+    "short_ru": "Кол",
+    "long_ru": "К Колоссянам",
+    "short_en": "Col",
+    "long_en": "Colossians"
+  },
+  "590": {
+    "book_number": 590,
+    "color": "#ffff00",
+    "short_ru": "1Фес",
+    "long_ru": "1-е Фессалоникийцам",
+    "short_en": "1Ths",
+    "long_en": "1 Thessalonians"
+  },
+  "600": {
+    "book_number": 600,
+    "color": "#ffff00",
+    "short_ru": "2Фес",
+    "long_ru": "2-е Фессалоникийцам",
+    "short_en": "2Ths",
+    "long_en": "2 Thessalonians"
+  },
+  "610": {
+    "book_number": 610,
+    "color": "#ffff00",
+    "short_ru": "1Тим",
+    "long_ru": "1-е Тимофею",
+    "short_en": "1Tim",
+    "long_en": "1 Timothy"
+  },
+  "620": {
+    "book_number": 620,
+    "color": "#ffff00",
+    "short_ru": "2Тим",
+    "long_ru": "2-е Тимофею",
+    "short_en": "2Tim",
+    "long_en": "2 Timothy"
+  },
+  "630": {
+    "book_number": 630,
+    "color": "#ffff00",
+    "short_ru": "Тит",
+    "long_ru": "К Титу",
+    "short_en": "Tit",
+    "long_en": "Titus"
+  },
+  "640": {
+    "book_number": 640,
+    "color": "#ffff00",
+    "short_ru": "Флм",
+    "long_ru": "К Филимону",
+    "short_en": "Phlm",
+    "long_en": "Philemon"
+  },
+  "650": {
+    "book_number": 650,
+    "color": "#ffff00",
+    "short_ru": "Евр",
+    "long_ru": "К Евреям",
+    "short_en": "Heb",
+    "long_en": "Hebrews"
+  },
+  "730": {
+    "book_number": 730,
+    "color": "#ff7c80",
+    "short_ru": "Откр",
+    "long_ru": "Откровение",
+    "short_en": "Rev",
+    "long_en": "Revelation"
+  },
+  "780": {
+    "book_number": 780,
+    "color": "#00ff00",
+    "short_ru": "Лаод",
+    "long_ru": "К Лаодикийцам",
+    "short_en": "Lao",
+    "long_en": "To the Laodiceans"
+  }
+}
