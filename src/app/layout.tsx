@@ -15,8 +15,16 @@ const crimsonText = Crimson_Text({
 });
 
 export const metadata: Metadata = {
-  title: "Bible Tracker",
-  description: "Track your bible reading progress",
+  title: "Bible365 - Your Daily Bible Reading Tracker",
+  description: "Track your bible reading progress with Bible365. Sync across devices with Google Drive.",
+  manifest: "/site.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export default function RootLayout({
@@ -26,6 +34,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+      </head>
       <body
         className={`${merriweather.variable} ${crimsonText.variable} antialiased`}
       >

@@ -5,6 +5,17 @@ import planDataRaw from '@/data/plan.json';
 import booksDataRaw from '@/data/books.json';
 import { PlanData, BookMap, ReadingItem } from '@/types';
 import Modal from './Modal';
+import {
+    initGoogleAuth,
+    signInWithGoogle,
+    signOut,
+    getStoredUser,
+    downloadProgress,
+    uploadProgress,
+    isSignedIn,
+    type GoogleUser,
+    type BibleTrackerData,
+} from '@/lib/googleAuth';
 
 // Cast imports to types
 const planData = planDataRaw as unknown as PlanData;
@@ -45,6 +56,13 @@ export default function BibleTracker() {
     const todayRef = useRef<HTMLDivElement>(null);
     const [setupDate, setSetupDate] = useState<string>('');
 
+    // Google Auth State
+    const [googleUser, setGoogleUser] = useState<GoogleUser | null>(null);
+    const [isGoogleReady, setIsGoogleReady] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [showGoogleConnectModal, setShowGoogleConnectModal] = useState(false);
+    const [syncError, setSyncError] = useState<string | null>(null);
+
     // Initialize from LocalStorage
     useEffect(() => {
         setIsClient(true);
@@ -57,6 +75,22 @@ export default function BibleTracker() {
         }
         if (storedCompleted) setCompletedItems(new Set(JSON.parse(storedCompleted)));
         if (storedLang) setLanguage(storedLang as 'en' | 'ru');
+
+        // Initialize Google Auth
+        initGoogleAuth()
+            .then(() => {
+                setIsGoogleReady(true);
+                // Check if user was previously signed in
+                const user = getStoredUser();
+                if (user) {
+                    setGoogleUser(user);
+                    // Try to sync on load
+                    syncFromDrive().catch(console.error);
+                }
+            })
+            .catch((err) => {
+                console.error('Failed to initialize Google Auth:', err);
+            });
     }, []);
 
     // Scroll to today on initial load (when refs are ready)
@@ -227,6 +261,108 @@ export default function BibleTracker() {
         return daysList;
     }, [viewDate, startDate, completedItems]);
 
+    // Google Drive Sync Functions
+    const syncToDrive = async () => {
+        if (!googleUser) return;
+
+        setIsSyncing(true);
+        setSyncError(null);
+
+        try {
+            const data: BibleTrackerData = {
+                startDate,
+                completed: Array.from(completedItems),
+                language,
+                lastSynced: new Date().toISOString(),
+            };
+            await uploadProgress(data);
+        } catch (error) {
+            console.error('Sync to Drive failed:', error);
+            setSyncError(language === 'en' ? 'Failed to sync to Google Drive' : 'Ошибка синхронизации с Google Drive');
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const syncFromDrive = async () => {
+        if (!googleUser) return;
+
+        setIsSyncing(true);
+        setSyncError(null);
+
+        try {
+            const data = await downloadProgress();
+            if (data) {
+                setStartDate(data.startDate);
+                setCompletedItems(new Set(data.completed));
+                setLanguage(data.language);
+            }
+        } catch (error) {
+            console.error('Sync from Drive failed:', error);
+            setSyncError(language === 'en' ? 'Failed to load from Google Drive' : 'Ошибка загрузки из Google Drive');
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const handleGoogleSignIn = async () => {
+        try {
+            const user = await signInWithGoogle();
+            setGoogleUser(user);
+
+            // Try to download existing progress from Drive
+            const driveData = await downloadProgress();
+
+            if (driveData && driveData.startDate) {
+                // Ask user if they want to use cloud data or keep local
+                if (startDate) {
+                    const useCloud = window.confirm(
+                        language === 'en'
+                            ? 'Found existing progress in Google Drive. Do you want to use it? (Cancel to keep local progress)'
+                            : 'Найден прогресс в Google Drive. Использовать его? (Отмена - сохранить локальный прогресс)'
+                    );
+                    if (useCloud) {
+                        setStartDate(driveData.startDate);
+                        setCompletedItems(new Set(driveData.completed));
+                        setLanguage(driveData.language);
+                    } else {
+                        // Upload local progress to Drive
+                        await syncToDrive();
+                    }
+                } else {
+                    // No local data, use cloud data
+                    setStartDate(driveData.startDate);
+                    setCompletedItems(new Set(driveData.completed));
+                    setLanguage(driveData.language);
+                }
+            } else if (startDate) {
+                // No cloud data but we have local data, upload it
+                await syncToDrive();
+            }
+
+            setShowGoogleConnectModal(false);
+        } catch (error) {
+            console.error('Google Sign-In failed:', error);
+            setSyncError(language === 'en' ? 'Failed to sign in with Google' : 'Ошибка входа через Google');
+        }
+    };
+
+    const handleGoogleSignOut = () => {
+        signOut();
+        setGoogleUser(null);
+    };
+
+    // Auto-sync to Drive when data changes (debounced)
+    useEffect(() => {
+        if (!googleUser || !isClient) return;
+
+        const timeoutId = setTimeout(() => {
+            syncToDrive();
+        }, 2000); // Debounce for 2 seconds
+
+        return () => clearTimeout(timeoutId);
+    }, [startDate, completedItems, language, googleUser, isClient]);
+
     // Format Reference
     const formatRef = (reading: ReadingItem) => {
         const book = booksData[reading.book_number];
@@ -251,7 +387,7 @@ export default function BibleTracker() {
     if (!startDate) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen p-6 max-w-md mx-auto fade-in">
-                <h1 className="text-4xl mb-2 text-[#4a4036] font-serif">Bible Tracker</h1>
+                <h1 className="text-4xl mb-2 text-[#4a4036] font-serif">Bible365</h1>
                 <p className="mb-8 text-[#8c7b6c] italic">Begin your journey through the Word.</p>
 
                 <div className="w-full bg-white p-6 rounded shadow-sm border border-[#e6e2d3]">
@@ -282,10 +418,56 @@ export default function BibleTracker() {
                     <button
                         disabled={!setupDate}
                         onClick={() => setupDate && setStartDate(setupDate)}
-                        className={`w-full py-3 rounded font-bold transition-all ${setupDate ? 'bg-[#8c7b6c] text-white hover:bg-[#7b6b5d]' : 'bg-[#e6e2d3] text-[#8c7b6c] cursor-not-allowed'}`}
+                        className={`w-full py-3 rounded font-bold transition-all mb-3 ${setupDate ? 'bg-[#8c7b6c] text-white hover:bg-[#7b6b5d]' : 'bg-[#e6e2d3] text-[#8c7b6c] cursor-not-allowed'}`}
                     >
-                        {language === 'en' ? 'Start Reading' : 'Начать чтение'}
+                        {language === 'en' ? 'Start Reading (Local Only)' : 'Начать чтение (Только локально)'}
                     </button>
+
+                    {isGoogleReady && (
+                        <>
+                            <div className="relative my-4">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-[#e6e2d3]"></div>
+                                </div>
+                                <div className="relative flex justify-center text-sm">
+                                    <span className="px-2 bg-white text-[#8c7b6c]">
+                                        {language === 'en' ? 'or' : 'или'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <button
+                                disabled={!setupDate}
+                                onClick={async () => {
+                                    if (setupDate) {
+                                        setStartDate(setupDate);
+                                        await handleGoogleSignIn();
+                                    }
+                                }}
+                                className={`w-full py-3 rounded font-bold transition-all flex items-center justify-center gap-2 ${setupDate ? 'bg-white text-[#4a4036] border-2 border-[#e6e2d3] hover:border-[#8c7b6c]' : 'bg-[#f6f2e9] text-[#8c7b6c] cursor-not-allowed border-2 border-[#e6e2d3]'}`}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4" />
+                                    <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.837.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9.003 18z" fill="#34A853" />
+                                    <path d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05" />
+                                    <path d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.426 0 9.003 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29c.708-2.127 2.692-3.71 5.036-3.71z" fill="#EA4335" />
+                                </svg>
+                                {language === 'en' ? 'Start with Google Drive' : 'Начать с Google Drive'}
+                            </button>
+
+                            <p className="text-xs text-[#8c7b6c] mt-3 text-center">
+                                {language === 'en'
+                                    ? 'Google Drive keeps your progress synced across devices'
+                                    : 'Google Drive синхронизирует прогресс между устройствами'}
+                            </p>
+                        </>
+                    )}
+
+                    {syncError && (
+                        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                            {syncError}
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -319,6 +501,62 @@ export default function BibleTracker() {
                         </button>
                         {menuOpen && (
                             <div className="absolute right-0 top-10 w-48 bg-white border border-[#e6e2d3] shadow-lg rounded z-20 overflow-hidden">
+                                {googleUser ? (
+                                    <>
+                                        <div className="px-4 py-3 border-b border-[#e6e2d3] bg-[#f6f2e9]">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <img src={googleUser.picture} alt="" className="w-6 h-6 rounded-full" />
+                                                <span className="text-xs font-bold text-[#4a4036] truncate">{googleUser.name}</span>
+                                            </div>
+                                            <div className="text-xs text-[#8c7b6c] flex items-center gap-1">
+                                                {isSyncing ? (
+                                                    <>
+                                                        <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                        {language === 'en' ? 'Syncing...' : 'Синхронизация...'}
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <svg className="h-3 w-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                        </svg>
+                                                        {language === 'en' ? 'Synced' : 'Синхронизировано'}
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => { syncFromDrive(); setMenuOpen(false); }}
+                                            className="w-full text-left px-4 py-3 hover:bg-[#f6f2e9] text-sm text-[#4a4036] flex items-center gap-2"
+                                        >
+                                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                            </svg>
+                                            {language === 'en' ? 'Sync from Drive' : 'Загрузить из Drive'}
+                                        </button>
+                                        <button
+                                            onClick={() => { handleGoogleSignOut(); setMenuOpen(false); }}
+                                            className="w-full text-left px-4 py-3 hover:bg-[#f6f2e9] text-sm text-[#4a4036] border-b border-[#e6e2d3]"
+                                        >
+                                            {language === 'en' ? 'Sign out from Google' : 'Выйти из Google'}
+                                        </button>
+                                    </>
+                                ) : isGoogleReady && (
+                                    <button
+                                        onClick={() => { setShowGoogleConnectModal(true); setMenuOpen(false); }}
+                                        className="w-full text-left px-4 py-3 hover:bg-[#f6f2e9] text-sm text-[#4a4036] border-b border-[#e6e2d3] flex items-center gap-2"
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4" />
+                                            <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.837.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9.003 18z" fill="#34A853" />
+                                            <path d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05" />
+                                            <path d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.426 0 9.003 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29c.708-2.127 2.692-3.71 5.036-3.71z" fill="#EA4335" />
+                                        </svg>
+                                        {language === 'en' ? 'Connect Google Drive' : 'Подключить Google Drive'}
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => { setLanguage(l => l === 'en' ? 'ru' : 'en'); setMenuOpen(false); }}
                                     className="w-full text-left px-4 py-3 hover:bg-[#f6f2e9] text-sm text-[#4a4036]"
@@ -469,6 +707,54 @@ export default function BibleTracker() {
                         onChange={(e) => setMarkUpToDate(e.target.value)}
                         className="w-full p-2 border border-[#e6e2d3] rounded font-serif text-[#4a4036]"
                     />
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={showGoogleConnectModal}
+                onClose={() => setShowGoogleConnectModal(false)}
+                title={language === 'en' ? 'Connect Google Drive' : 'Подключить Google Drive'}
+                footer={
+                    <>
+                        <button onClick={() => setShowGoogleConnectModal(false)} className="px-4 py-2 text-[#4a4036] hover:bg-[#f6f2e9] rounded">
+                            {language === 'en' ? 'Cancel' : 'Отмена'}
+                        </button>
+                        <button
+                            onClick={handleGoogleSignIn}
+                            className="px-4 py-2 bg-[#8c7b6c] text-white rounded hover:bg-[#7b6b5d] flex items-center gap-2"
+                        >
+                            <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4" />
+                                <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.837.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9.003 18z" fill="#34A853" />
+                                <path d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05" />
+                                <path d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.426 0 9.003 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29c.708-2.127 2.692-3.71 5.036-3.71z" fill="#EA4335" />
+                            </svg>
+                            {language === 'en' ? 'Connect' : 'Подключить'}
+                        </button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <p className="text-[#4a4036]">
+                        {language === 'en'
+                            ? 'Connect your Google account to automatically backup and sync your reading progress across all your devices.'
+                            : 'Подключите Google аккаунт для автоматического резервного копирования и синхронизации прогресса чтения на всех устройствах.'}
+                    </p>
+                    <div className="bg-[#f6f2e9] p-3 rounded text-sm text-[#4a4036]">
+                        <p className="font-bold mb-1">
+                            {language === 'en' ? '✓ Benefits:' : '✓ Преимущества:'}
+                        </p>
+                        <ul className="list-disc list-inside space-y-1 text-[#8c7b6c]">
+                            <li>{language === 'en' ? 'Automatic cloud backup' : 'Автоматическое облачное резервное копирование'}</li>
+                            <li>{language === 'en' ? 'Sync across devices' : 'Синхронизация между устройствами'}</li>
+                            <li>{language === 'en' ? 'Never lose your progress' : 'Никогда не потеряете прогресс'}</li>
+                        </ul>
+                    </div>
+                    {syncError && (
+                        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                            {syncError}
+                        </div>
+                    )}
                 </div>
             </Modal>
         </div>
