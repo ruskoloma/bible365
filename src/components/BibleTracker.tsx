@@ -37,6 +37,9 @@ const parseLocalDate = (dateStr: string) => {
     return new Date(y, m - 1, d);
 };
 
+// Capture env var at build time (this ensures it works in production)
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+
 export default function BibleTracker() {
     const [isClient, setIsClient] = useState(false);
     const [startDate, setStartDate] = useState<string | null>(null);
@@ -66,6 +69,12 @@ export default function BibleTracker() {
     // Initialize from LocalStorage
     useEffect(() => {
         setIsClient(true);
+
+        // Debug: Log Google Client ID (works in both dev and production)
+        console.log('🔑 GOOGLE_CLIENT_ID (build-time):', GOOGLE_CLIENT_ID);
+        console.log('🔑 process.env (runtime):', process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
+        console.log('🌍 Current origin:', typeof window !== 'undefined' ? window.location.origin : 'SSR');
+
         const storedStart = localStorage.getItem('bible_startDate');
         const storedCompleted = localStorage.getItem('bible_completed');
         const storedLang = localStorage.getItem('bible_lang');
