@@ -12,6 +12,7 @@ import {
     getStoredUser,
     downloadProgress,
     uploadProgress,
+    deleteProgress,
     isSignedIn,
     type GoogleUser,
     type BibleTrackerData,
@@ -37,9 +38,6 @@ const parseLocalDate = (dateStr: string) => {
     return new Date(y, m - 1, d);
 };
 
-// Capture env var at build time (this ensures it works in production)
-const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-
 export default function BibleTracker() {
     const [isClient, setIsClient] = useState(false);
     const [startDate, setStartDate] = useState<string | null>(null);
@@ -51,9 +49,13 @@ export default function BibleTracker() {
     const [menuOpen, setMenuOpen] = useState(false);
 
     // Modals
-    const [showResetModal, setShowResetModal] = useState(false);
+    const [showResetModal, setShowResetModal] = useState(false); // Legacy - will be removed
+    const [showResetProgressModal, setShowResetProgressModal] = useState(false);
+    const [showDeletePlanModal, setShowDeletePlanModal] = useState(false);
     const [showMarkUpToModal, setShowMarkUpToModal] = useState(false);
+    const [showChangeStartDayModal, setShowChangeStartDayModal] = useState(false);
     const [markUpToDate, setMarkUpToDate] = useState('');
+    const [newStartDate, setNewStartDate] = useState('');
     const [scrollToDay, setScrollToDay] = useState<number | null>(null);
 
     const todayRef = useRef<HTMLDivElement>(null);
@@ -69,11 +71,6 @@ export default function BibleTracker() {
     // Initialize from LocalStorage
     useEffect(() => {
         setIsClient(true);
-
-        // Debug: Log Google Client ID (works in both dev and production)
-        console.log('🔑 GOOGLE_CLIENT_ID (build-time):', GOOGLE_CLIENT_ID);
-        console.log('🔑 process.env (runtime):', process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
-        console.log('🌍 Current origin:', typeof window !== 'undefined' ? window.location.origin : 'SSR');
 
         const storedStart = localStorage.getItem('bible_startDate');
         const storedCompleted = localStorage.getItem('bible_completed');
@@ -222,9 +219,48 @@ export default function BibleTracker() {
         window.location.reload();
     };
 
+    const confirmResetProgress = () => {
+        // Clear only completed items, keep startDate and Google connection
+        setCompletedItems(new Set());
+        setShowResetProgressModal(false);
+        // Sync to Google Drive if connected
+        if (googleUser) {
+            syncToDrive();
+        }
+    };
+
+    const confirmDeletePlan = async () => {
+        try {
+            // Delete from Google Drive if connected
+            if (googleUser) {
+                await deleteProgress();
+                signOut();
+                setGoogleUser(null);
+            }
+            // Clear all local data
+            localStorage.clear();
+            // Redirect to start page
+            window.location.reload();
+        } catch (error) {
+            console.error('Failed to delete plan:', error);
+        }
+    };
+
     const handleSetup = (date: string, lang: 'en' | 'ru') => {
         setStartDate(date);
         setLanguage(lang);
+    };
+
+    const executeChangeStartDay = () => {
+        if (newStartDate) {
+            setStartDate(newStartDate);
+            setShowChangeStartDayModal(false);
+            setNewStartDate('');
+            // Sync to Google Drive if connected
+            if (googleUser) {
+                syncToDrive();
+            }
+        }
     };
 
     // Generate days for the viewDate month
@@ -316,6 +352,7 @@ export default function BibleTracker() {
 
     const handleGoogleSignIn = async () => {
         try {
+            setIsSyncing(true);
             const user = await signInWithGoogle();
             setGoogleUser(user);
 
@@ -344,8 +381,13 @@ export default function BibleTracker() {
                     setCompletedItems(new Set(driveData.completed));
                     setLanguage(driveData.language);
                 }
-            } else if (startDate) {
-                // No cloud data but we have local data, upload it
+            } else {
+                // No cloud data - if no local startDate, set to today
+                if (!startDate) {
+                    const today = new Date().toISOString().split('T')[0];
+                    setStartDate(today);
+                }
+                // Upload current state to Drive
                 await syncToDrive();
             }
 
@@ -353,12 +395,26 @@ export default function BibleTracker() {
         } catch (error) {
             console.error('Google Sign-In failed:', error);
             setSyncError(language === 'en' ? 'Failed to sign in with Google' : 'Ошибка входа через Google');
+        } finally {
+            setIsSyncing(false);
         }
     };
 
-    const handleGoogleSignOut = () => {
-        signOut();
-        setGoogleUser(null);
+    const handleGoogleSignOut = async () => {
+        try {
+            // Sync current progress to Drive before signing out
+            if (googleUser) {
+                await syncToDrive();
+            }
+            // Sign out from Google
+            signOut();
+            setGoogleUser(null);
+            // Clear local data and redirect to start page
+            localStorage.clear();
+            window.location.reload();
+        } catch (error) {
+            console.error('Failed to sign out:', error);
+        }
     };
 
     // Auto-sync to Drive when data changes (debounced)
@@ -446,22 +502,34 @@ export default function BibleTracker() {
                             </div>
 
                             <button
-                                disabled={!setupDate}
+                                disabled={isSyncing}
                                 onClick={async () => {
                                     if (setupDate) {
                                         setStartDate(setupDate);
-                                        await handleGoogleSignIn();
                                     }
+                                    await handleGoogleSignIn();
                                 }}
-                                className={`w-full py-3 rounded font-bold transition-all flex items-center justify-center gap-2 ${setupDate ? 'bg-white text-[#4a4036] border-2 border-[#e6e2d3] hover:border-[#8c7b6c]' : 'bg-[#f6f2e9] text-[#8c7b6c] cursor-not-allowed border-2 border-[#e6e2d3]'}`}
+                                className={`w-full py-3 rounded font-bold transition-all flex items-center justify-center gap-2 ${isSyncing ? 'bg-[#f6f2e9] text-[#8c7b6c] cursor-not-allowed border-2 border-[#e6e2d3]' : 'bg-white text-[#4a4036] border-2 border-[#e6e2d3] hover:border-[#8c7b6c]'}`}
                             >
-                                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4" />
-                                    <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.837.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9.003 18z" fill="#34A853" />
-                                    <path d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05" />
-                                    <path d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.426 0 9.003 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29c.708-2.127 2.692-3.71 5.036-3.71z" fill="#EA4335" />
-                                </svg>
-                                {language === 'en' ? 'Start with Google Drive' : 'Начать с Google Drive'}
+                                {isSyncing ? (
+                                    <>
+                                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        {language === 'en' ? 'Signing in...' : 'Вход...'}
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4" />
+                                            <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.837.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9.003 18z" fill="#34A853" />
+                                            <path d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05" />
+                                            <path d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.426 0 9.003 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29c.708-2.127 2.692-3.71 5.036-3.71z" fill="#EA4335" />
+                                        </svg>
+                                        {language === 'en' ? 'Start with Google Drive' : 'Начать с Google Drive'}
+                                    </>
+                                )}
                             </button>
 
                             <p className="text-xs text-[#8c7b6c] mt-3 text-center">
@@ -579,10 +647,22 @@ export default function BibleTracker() {
                                     {language === 'en' ? 'Mark done up to...' : 'Отметить до...'}
                                 </button>
                                 <button
-                                    onClick={() => { setShowResetModal(true); setMenuOpen(false); }}
-                                    className="w-full text-left px-4 py-3 hover:bg-red-50 text-sm text-red-700 border-t border-[#e6e2d3]"
+                                    onClick={() => { setShowChangeStartDayModal(true); setMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-3 hover:bg-[#f6f2e9] text-sm text-[#4a4036]"
                                 >
-                                    {language === 'en' ? 'Reset Progress' : 'Сброс'}
+                                    {language === 'en' ? 'Change Start Day' : 'Изменить дату начала'}
+                                </button>
+                                <button
+                                    onClick={() => { setShowResetProgressModal(true); setMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-3 hover:bg-orange-50 text-sm text-orange-700 border-t border-[#e6e2d3]"
+                                >
+                                    {language === 'en' ? 'Reset Progress' : 'Сбросить прогресс'}
+                                </button>
+                                <button
+                                    onClick={() => { setShowDeletePlanModal(true); setMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-3 hover:bg-red-50 text-sm text-red-700"
+                                >
+                                    {language === 'en' ? 'Delete Plan' : 'Удалить план'}
                                 </button>
                             </div>
                         )}
@@ -764,6 +844,99 @@ export default function BibleTracker() {
                             {syncError}
                         </div>
                     )}
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={showChangeStartDayModal}
+                onClose={() => setShowChangeStartDayModal(false)}
+                title={language === 'en' ? 'Change Start Day' : 'Изменить дату начала'}
+                footer={
+                    <>
+                        <button onClick={() => setShowChangeStartDayModal(false)} className="px-4 py-2 text-[#4a4036] hover:bg-[#f6f2e9] rounded">
+                            {language === 'en' ? 'Cancel' : 'Отмена'}
+                        </button>
+                        <button onClick={executeChangeStartDay} className="px-4 py-2 bg-[#8c7b6c] text-white rounded hover:bg-[#7b6b5d]">
+                            {language === 'en' ? 'Confirm' : 'Подтвердить'}
+                        </button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <p className="text-sm text-[#8c7b6c]">
+                        {language === 'en'
+                            ? 'Select a new start date for your reading plan. This will recalculate your progress.'
+                            : 'Выберите новую дату начала плана чтения. Это пересчитает ваш прогресс.'}
+                    </p>
+                    <input
+                        type="date"
+                        value={newStartDate}
+                        onChange={(e) => setNewStartDate(e.target.value)}
+                        className="w-full p-2 border border-[#e6e2d3] rounded font-serif text-[#4a4036]"
+                    />
+                    {startDate && (
+                        <p className="text-xs text-[#8c7b6c]">
+                            {language === 'en' ? 'Current start date: ' : 'Текущая дата начала: '}
+                            <span className="font-bold">{startDate}</span>
+                        </p>
+                    )}
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={showResetProgressModal}
+                onClose={() => setShowResetProgressModal(false)}
+                title={language === 'en' ? 'Reset Progress?' : 'Сбросить прогресс?'}
+                footer={
+                    <>
+                        <button onClick={() => setShowResetProgressModal(false)} className="px-4 py-2 text-[#4a4036] hover:bg-[#f6f2e9] rounded">
+                            {language === 'en' ? 'Cancel' : 'Отмена'}
+                        </button>
+                        <button onClick={confirmResetProgress} className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">
+                            {language === 'en' ? 'Reset Progress' : 'Сбросить'}
+                        </button>
+                    </>
+                }
+            >
+                <p className="text-[#4a4036]">
+                    {language === 'en'
+                        ? 'This will clear all your reading progress (checkboxes), but keep your start date and Google Drive connection.'
+                        : 'Это очистит весь прогресс чтения (галочки), но сохранит дату начала и подключение к Google Drive.'}
+                </p>
+            </Modal>
+
+            <Modal
+                isOpen={showDeletePlanModal}
+                onClose={() => setShowDeletePlanModal(false)}
+                title={language === 'en' ? 'Delete Plan?' : 'Удалить план?'}
+                footer={
+                    <>
+                        <button onClick={() => setShowDeletePlanModal(false)} className="px-4 py-2 text-[#4a4036] hover:bg-[#f6f2e9] rounded">
+                            {language === 'en' ? 'Cancel' : 'Отмена'}
+                        </button>
+                        <button onClick={confirmDeletePlan} className="px-4 py-2 bg-red-800 text-white rounded hover:bg-red-900">
+                            {language === 'en' ? 'Delete Everything' : 'Удалить всё'}
+                        </button>
+                    </>
+                }
+            >
+                <div className="space-y-3">
+                    <p className="text-[#4a4036] font-bold">
+                        {language === 'en'
+                            ? '⚠️ This action cannot be undone!'
+                            : '⚠️ Это действие нельзя отменить!'}
+                    </p>
+                    <p className="text-[#4a4036]">
+                        {language === 'en'
+                            ? 'This will:'
+                            : 'Это действие:'}
+                    </p>
+                    <ul className="list-disc list-inside text-[#4a4036] space-y-1 ml-2">
+                        <li>{language === 'en' ? 'Delete your progress from Google Drive' : 'Удалит прогресс из Google Drive'}</li>
+                        <li>{language === 'en' ? 'Sign you out from Google' : 'Выйдет из Google аккаунта'}</li>
+                        <li>{language === 'en' ? 'Clear all local data' : 'Очистит все локальные данные'}</li>
+                        <li>{language === 'en' ? 'Return you to the start page' : 'Вернёт на страницу начала'}</li>
+                    </ul>
                 </div>
             </Modal>
         </div>

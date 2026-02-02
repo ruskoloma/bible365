@@ -197,11 +197,16 @@ export const uploadProgress = async (data: BibleTrackerData): Promise<void> => {
         fileId = await findDriveFile(token);
     }
 
-    const metadata = {
+    // Metadata - only include parents when creating a new file
+    const metadata: any = {
         name: BIBLE_TRACKER_FILENAME,
         mimeType: 'application/json',
-        parents: ['appDataFolder'],
     };
+
+    // Only add parents when creating a new file (not updating)
+    if (!fileId) {
+        metadata.parents = ['appDataFolder'];
+    }
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const formData = new FormData();
@@ -221,11 +226,44 @@ export const uploadProgress = async (data: BibleTrackerData): Promise<void> => {
     });
 
     if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Upload failed:', errorText);
         throw new Error('Failed to upload progress');
     }
 
     const result = await response.json();
     localStorage.setItem('drive_file_id', result.id);
+};
+
+// Delete progress from Google Drive
+export const deleteProgress = async (): Promise<void> => {
+    const token = await getAccessToken();
+    if (!token) throw new Error('Not authenticated');
+
+    let fileId = localStorage.getItem('drive_file_id');
+
+    // If no cached file ID, search for it
+    if (!fileId) {
+        fileId = await findDriveFile(token);
+    }
+
+    // If file exists, delete it
+    if (fileId) {
+        const response = await fetch(
+            `${DRIVE_API_ENDPOINT}/files/${fileId}`,
+            {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+            }
+        );
+
+        if (!response.ok) {
+            console.error('Failed to delete file from Drive');
+        }
+
+        // Clear cached file ID
+        localStorage.removeItem('drive_file_id');
+    }
 };
 
 // Check if user is signed in
