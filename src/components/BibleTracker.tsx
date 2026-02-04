@@ -69,11 +69,22 @@ export default function BibleTracker() {
     const [showGoogleConnectModal, setShowGoogleConnectModal] = useState(false);
     const [syncError, setSyncError] = useState<string | null>(null);
 
-    // Initialize from LocalStorage or Google Drive
+    // Initialize from LocalStorage
     useEffect(() => {
         setIsClient(true);
 
-        // Initialize Google Auth first
+        // Always load from localStorage first
+        const storedStart = localStorage.getItem('bible_startDate');
+        const storedCompleted = localStorage.getItem('bible_completed');
+        const storedLang = localStorage.getItem('bible_lang');
+
+        if (storedStart) {
+            setStartDate(storedStart);
+        }
+        if (storedCompleted) setCompletedItems(new Set(JSON.parse(storedCompleted)));
+        if (storedLang) setLanguage(storedLang as 'en' | 'ru');
+
+        // Initialize Google Auth
         initGoogleAuth()
             .then(() => {
                 setIsGoogleReady(true);
@@ -81,33 +92,10 @@ export default function BibleTracker() {
                 const user = getStoredUser();
                 if (user) {
                     setGoogleUser(user);
-                    // If Google account is connected, load from Drive (not localStorage)
-                    syncFromDrive().catch(console.error);
-                } else {
-                    // No Google account - use localStorage
-                    const storedStart = localStorage.getItem('bible_startDate');
-                    const storedCompleted = localStorage.getItem('bible_completed');
-                    const storedLang = localStorage.getItem('bible_lang');
-
-                    if (storedStart) {
-                        setStartDate(storedStart);
-                    }
-                    if (storedCompleted) setCompletedItems(new Set(JSON.parse(storedCompleted)));
-                    if (storedLang) setLanguage(storedLang as 'en' | 'ru');
                 }
             })
             .catch((err) => {
                 console.error('Failed to initialize Google Auth:', err);
-                // Fallback to localStorage if Google Auth fails
-                const storedStart = localStorage.getItem('bible_startDate');
-                const storedCompleted = localStorage.getItem('bible_completed');
-                const storedLang = localStorage.getItem('bible_lang');
-
-                if (storedStart) {
-                    setStartDate(storedStart);
-                }
-                if (storedCompleted) setCompletedItems(new Set(JSON.parse(storedCompleted)));
-                if (storedLang) setLanguage(storedLang as 'en' | 'ru');
             });
     }, []);
 
@@ -134,13 +122,13 @@ export default function BibleTracker() {
         }
     }, [scrollToDay, viewDate]);
 
-    // Save to LocalStorage ONLY if no Google account is connected
+    // Save to LocalStorage (always save as primary storage)
     useEffect(() => {
-        if (!isClient || googleUser) return; // Skip if Google account is active
+        if (!isClient) return;
         if (startDate) localStorage.setItem('bible_startDate', startDate);
         localStorage.setItem('bible_completed', JSON.stringify(Array.from(completedItems)));
         localStorage.setItem('bible_lang', language);
-    }, [startDate, completedItems, language, isClient, googleUser]);
+    }, [startDate, completedItems, language, isClient]);
 
     // Derived Logic
     const today = useMemo(() => new Date(), []);
@@ -450,17 +438,7 @@ export default function BibleTracker() {
         return () => clearTimeout(timeoutId);
     }, [startDate, completedItems, language, googleUser, isClient]);
 
-    // Periodic sync from Drive to get updates from other devices
-    useEffect(() => {
-        if (!googleUser || !isClient) return;
 
-        // Check for updates every 30 seconds
-        const intervalId = setInterval(() => {
-            syncFromDrive();
-        }, 30000);
-
-        return () => clearInterval(intervalId);
-    }, [googleUser, isClient]);
 
     // Format Reference
     const formatRef = (reading: ReadingItem) => {
