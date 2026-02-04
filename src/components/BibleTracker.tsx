@@ -59,6 +59,7 @@ export default function BibleTracker() {
     const [scrollToDay, setScrollToDay] = useState<number | null>(null);
 
     const todayRef = useRef<HTMLDivElement>(null);
+    const isLoadingFromDrive = useRef(false); // Track when loading from Drive to prevent auto-sync loops
     const [setupDate, setSetupDate] = useState<string>('');
 
     // Google Auth State
@@ -68,21 +69,11 @@ export default function BibleTracker() {
     const [showGoogleConnectModal, setShowGoogleConnectModal] = useState(false);
     const [syncError, setSyncError] = useState<string | null>(null);
 
-    // Initialize from LocalStorage
+    // Initialize from LocalStorage or Google Drive
     useEffect(() => {
         setIsClient(true);
 
-        const storedStart = localStorage.getItem('bible_startDate');
-        const storedCompleted = localStorage.getItem('bible_completed');
-        const storedLang = localStorage.getItem('bible_lang');
-
-        if (storedStart) {
-            setStartDate(storedStart);
-        }
-        if (storedCompleted) setCompletedItems(new Set(JSON.parse(storedCompleted)));
-        if (storedLang) setLanguage(storedLang as 'en' | 'ru');
-
-        // Initialize Google Auth
+        // Initialize Google Auth first
         initGoogleAuth()
             .then(() => {
                 setIsGoogleReady(true);
@@ -90,12 +81,33 @@ export default function BibleTracker() {
                 const user = getStoredUser();
                 if (user) {
                     setGoogleUser(user);
-                    // Try to sync on load
+                    // If Google account is connected, load from Drive (not localStorage)
                     syncFromDrive().catch(console.error);
+                } else {
+                    // No Google account - use localStorage
+                    const storedStart = localStorage.getItem('bible_startDate');
+                    const storedCompleted = localStorage.getItem('bible_completed');
+                    const storedLang = localStorage.getItem('bible_lang');
+
+                    if (storedStart) {
+                        setStartDate(storedStart);
+                    }
+                    if (storedCompleted) setCompletedItems(new Set(JSON.parse(storedCompleted)));
+                    if (storedLang) setLanguage(storedLang as 'en' | 'ru');
                 }
             })
             .catch((err) => {
                 console.error('Failed to initialize Google Auth:', err);
+                // Fallback to localStorage if Google Auth fails
+                const storedStart = localStorage.getItem('bible_startDate');
+                const storedCompleted = localStorage.getItem('bible_completed');
+                const storedLang = localStorage.getItem('bible_lang');
+
+                if (storedStart) {
+                    setStartDate(storedStart);
+                }
+                if (storedCompleted) setCompletedItems(new Set(JSON.parse(storedCompleted)));
+                if (storedLang) setLanguage(storedLang as 'en' | 'ru');
             });
     }, []);
 
@@ -122,13 +134,13 @@ export default function BibleTracker() {
         }
     }, [scrollToDay, viewDate]);
 
-    // Save to LocalStorage
+    // Save to LocalStorage ONLY if no Google account is connected
     useEffect(() => {
-        if (!isClient) return;
+        if (!isClient || googleUser) return; // Skip if Google account is active
         if (startDate) localStorage.setItem('bible_startDate', startDate);
         localStorage.setItem('bible_completed', JSON.stringify(Array.from(completedItems)));
         localStorage.setItem('bible_lang', language);
-    }, [startDate, completedItems, language, isClient]);
+    }, [startDate, completedItems, language, isClient, googleUser]);
 
     // Derived Logic
     const today = useMemo(() => new Date(), []);
@@ -332,6 +344,7 @@ export default function BibleTracker() {
     const syncFromDrive = async () => {
         if (!googleUser) return;
 
+        isLoadingFromDrive.current = true; // Mark that we're loading from Drive
         setIsSyncing(true);
         setSyncError(null);
 
@@ -347,6 +360,10 @@ export default function BibleTracker() {
             setSyncError(language === 'en' ? 'Failed to load from Google Drive' : 'Ошибка загрузки из Google Drive');
         } finally {
             setIsSyncing(false);
+            // Reset the flag after a short delay to allow state updates to complete
+            setTimeout(() => {
+                isLoadingFromDrive.current = false;
+            }, 100);
         }
     };
 
@@ -391,6 +408,11 @@ export default function BibleTracker() {
                 await syncToDrive();
             }
 
+            // Clear localStorage since we're now using Google Drive as the source of truth
+            localStorage.removeItem('bible_startDate');
+            localStorage.removeItem('bible_completed');
+            localStorage.removeItem('bible_lang');
+
             setShowGoogleConnectModal(false);
         } catch (error) {
             console.error('Google Sign-In failed:', error);
@@ -419,7 +441,7 @@ export default function BibleTracker() {
 
     // Auto-sync to Drive when data changes (debounced)
     useEffect(() => {
-        if (!googleUser || !isClient) return;
+        if (!googleUser || !isClient || isLoadingFromDrive.current) return; // Skip if loading from Drive
 
         const timeoutId = setTimeout(() => {
             syncToDrive();
@@ -427,6 +449,18 @@ export default function BibleTracker() {
 
         return () => clearTimeout(timeoutId);
     }, [startDate, completedItems, language, googleUser, isClient]);
+
+    // Periodic sync from Drive to get updates from other devices
+    useEffect(() => {
+        if (!googleUser || !isClient) return;
+
+        // Check for updates every 30 seconds
+        const intervalId = setInterval(() => {
+            syncFromDrive();
+        }, 30000);
+
+        return () => clearInterval(intervalId);
+    }, [googleUser, isClient]);
 
     // Format Reference
     const formatRef = (reading: ReadingItem) => {
