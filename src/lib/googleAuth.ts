@@ -21,6 +21,9 @@ export interface BibleTrackerData {
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
 let accessToken: string | null = null;
+type TokenClientWithPromptOverride = google.accounts.oauth2.TokenClient & {
+    requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+};
 
 // Check if Google OAuth is configured
 export const isGoogleConfigured = (): boolean => {
@@ -59,7 +62,7 @@ export const initGoogleAuth = (): Promise<void> => {
 };
 
 // Request access token
-export const requestAccessToken = (): Promise<string> => {
+export const requestAccessToken = (interactive = true): Promise<string> => {
     return new Promise((resolve, reject) => {
         if (!tokenClient) {
             reject(new Error('Google Auth not initialized'));
@@ -79,7 +82,8 @@ export const requestAccessToken = (): Promise<string> => {
             resolve(accessToken);
         };
 
-        tokenClient.requestAccessToken();
+        const client = tokenClient as TokenClientWithPromptOverride;
+        client.requestAccessToken(interactive ? {} : { prompt: '' });
     });
 };
 
@@ -90,9 +94,19 @@ export const getAccessToken = async (): Promise<string | null> => {
     const stored = localStorage.getItem('google_access_token');
     const expires = localStorage.getItem('google_token_expires');
 
-    if (stored && expires && Date.now() < parseInt(expires)) {
+    if (stored && expires && Date.now() < parseInt(expires) - 60_000) {
         accessToken = stored;
         return accessToken;
+    }
+
+    // Try silent token refresh for previously authorized users.
+    // This is needed when the app is opened on another device/session.
+    if (tokenClient) {
+        try {
+            return await requestAccessToken(false);
+        } catch {
+            return null;
+        }
     }
 
     return null;
@@ -100,7 +114,7 @@ export const getAccessToken = async (): Promise<string | null> => {
 
 // Sign in with Google
 export const signInWithGoogle = async (): Promise<GoogleUser> => {
-    const token = await requestAccessToken();
+    const token = await requestAccessToken(true);
 
     // Get user info
     const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -198,7 +212,7 @@ export const uploadProgress = async (data: BibleTrackerData): Promise<void> => {
     }
 
     // Metadata - only include parents when creating a new file
-    const metadata: any = {
+    const metadata: { name: string; mimeType: string; parents?: string[] } = {
         name: BIBLE_TRACKER_FILENAME,
         mimeType: 'application/json',
     };

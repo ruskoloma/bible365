@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import Image from 'next/image';
 import planDataRaw from '@/data/plan.json';
 import booksDataRaw from '@/data/books.json';
 import { PlanData, BookMap, ReadingItem } from '@/types';
@@ -13,7 +14,6 @@ import {
     downloadProgress,
     uploadProgress,
     deleteProgress,
-    isSignedIn,
     type GoogleUser,
     type BibleTrackerData,
 } from '@/lib/googleAuth';
@@ -60,6 +60,8 @@ export default function BibleTracker() {
 
     const todayRef = useRef<HTMLDivElement>(null);
     const isLoadingFromDrive = useRef(false); // Track when loading from Drive to prevent auto-sync loops
+    const hasInitializedCloudState = useRef(false);
+    const latestSyncedAt = useRef<string | null>(null);
     const [setupDate, setSetupDate] = useState<string>('');
 
     // Google Auth State
@@ -133,15 +135,17 @@ export default function BibleTracker() {
     // Derived Logic
     const today = useMemo(() => new Date(), []);
 
-    // Calculate current progress (first incomplete day)
-    const currentProgressDay = useMemo(() => {
+    // Last fully completed plan day (contiguous from day 1)
+    const lastFullyCompletedDay = useMemo(() => {
+        let last = 0;
         for (const dayPlan of planData.plan) {
             const allCompleted = dayPlan.readings.every((_, idx) =>
                 completedItems.has(`${dayPlan.day}-${idx}`)
             );
-            if (!allCompleted) return dayPlan.day;
+            if (!allCompleted) break;
+            last = dayPlan.day;
         }
-        return planData.plan.length; // All done
+        return last;
     }, [completedItems]);
 
     // Calculate "target day" relative to start date
@@ -151,7 +155,8 @@ export default function BibleTracker() {
         return Math.max(1, diff + 1);
     }, [startDate, today]);
 
-    const daysBehind = targetDay - currentProgressDay;
+    const expectedCompletedDay = Math.min(planData.plan.length, Math.max(0, targetDay - 1));
+    const daysBehind = Math.max(0, expectedCompletedDay - lastFullyCompletedDay);
 
     const handleToggleItem = (day: number, idx: number) => {
         const key = `${day}-${idx}`;
@@ -225,7 +230,9 @@ export default function BibleTracker() {
         setShowResetProgressModal(false);
         // Sync to Google Drive if connected
         if (googleUser) {
-            syncToDrive();
+            void syncToDrive({
+                completed: [],
+            });
         }
     };
 
@@ -246,11 +253,6 @@ export default function BibleTracker() {
         }
     };
 
-    const handleSetup = (date: string, lang: 'en' | 'ru') => {
-        setStartDate(date);
-        setLanguage(lang);
-    };
-
     const executeChangeStartDay = () => {
         if (newStartDate) {
             setStartDate(newStartDate);
@@ -258,7 +260,9 @@ export default function BibleTracker() {
             setNewStartDate('');
             // Sync to Google Drive if connected
             if (googleUser) {
-                syncToDrive();
+                void syncToDrive({
+                    startDate: newStartDate,
+                });
             }
         }
     };
@@ -307,53 +311,70 @@ export default function BibleTracker() {
     }, [viewDate, startDate, completedItems]);
 
     // Google Drive Sync Functions
-    const syncToDrive = async () => {
+    const syncToDrive = useCallback(async (overrides?: Partial<BibleTrackerData>) => {
         if (!googleUser) return;
 
         setIsSyncing(true);
         setSyncError(null);
 
         try {
+            const timestamp = new Date().toISOString();
             const data: BibleTrackerData = {
-                startDate,
-                completed: Array.from(completedItems),
-                language,
-                lastSynced: new Date().toISOString(),
+                startDate: overrides?.startDate ?? startDate,
+                completed: overrides?.completed ?? Array.from(completedItems),
+                language: overrides?.language ?? language,
+                lastSynced: overrides?.lastSynced ?? timestamp,
             };
             await uploadProgress(data);
+            latestSyncedAt.current = data.lastSynced;
+            hasInitializedCloudState.current = true;
         } catch (error) {
             console.error('Sync to Drive failed:', error);
             setSyncError(language === 'en' ? 'Failed to sync to Google Drive' : 'Ошибка синхронизации с Google Drive');
         } finally {
             setIsSyncing(false);
         }
-    };
+    }, [googleUser, startDate, completedItems, language]);
 
-    const syncFromDrive = async () => {
+    const syncFromDrive = useCallback(async (isBackground = false) => {
         if (!googleUser) return;
 
         isLoadingFromDrive.current = true; // Mark that we're loading from Drive
-        setIsSyncing(true);
-        setSyncError(null);
+        if (!isBackground) {
+            setIsSyncing(true);
+            setSyncError(null);
+        }
 
         try {
             const data = await downloadProgress();
             if (data) {
+                if (data.lastSynced && latestSyncedAt.current && data.lastSynced <= latestSyncedAt.current) {
+                    return;
+                }
                 setStartDate(data.startDate);
                 setCompletedItems(new Set(data.completed));
                 setLanguage(data.language);
+                latestSyncedAt.current = data.lastSynced || null;
+            } else if (!startDate) {
+                const todayIso = new Date().toISOString().split('T')[0];
+                setStartDate(todayIso);
             }
         } catch (error) {
             console.error('Sync from Drive failed:', error);
-            setSyncError(language === 'en' ? 'Failed to load from Google Drive' : 'Ошибка загрузки из Google Drive');
+            if (!isBackground) {
+                setSyncError(language === 'en' ? 'Failed to load from Google Drive' : 'Ошибка загрузки из Google Drive');
+            }
         } finally {
-            setIsSyncing(false);
+            hasInitializedCloudState.current = true;
+            if (!isBackground) {
+                setIsSyncing(false);
+            }
             // Reset the flag after a short delay to allow state updates to complete
             setTimeout(() => {
                 isLoadingFromDrive.current = false;
             }, 100);
         }
-    };
+    }, [googleUser, startDate, language]);
 
     const handleGoogleSignIn = async () => {
         try {
@@ -378,22 +399,29 @@ export default function BibleTracker() {
                         setLanguage(driveData.language);
                     } else {
                         // Upload local progress to Drive
-                        await syncToDrive();
+                        await syncToDrive({
+                            startDate,
+                            completed: Array.from(completedItems),
+                            language,
+                        });
                     }
                 } else {
                     // No local data, use cloud data
                     setStartDate(driveData.startDate);
                     setCompletedItems(new Set(driveData.completed));
                     setLanguage(driveData.language);
+                    latestSyncedAt.current = driveData.lastSynced || null;
                 }
             } else {
                 // No cloud data - if no local startDate, set to today
-                if (!startDate) {
-                    const today = new Date().toISOString().split('T')[0];
-                    setStartDate(today);
-                }
+                const startDateForUpload = startDate || new Date().toISOString().split('T')[0];
+                if (!startDate) setStartDate(startDateForUpload);
                 // Upload current state to Drive
-                await syncToDrive();
+                await syncToDrive({
+                    startDate: startDateForUpload,
+                    completed: Array.from(completedItems),
+                    language,
+                });
             }
 
             // Clear localStorage since we're now using Google Drive as the source of truth
@@ -401,6 +429,7 @@ export default function BibleTracker() {
             localStorage.removeItem('bible_completed');
             localStorage.removeItem('bible_lang');
 
+            hasInitializedCloudState.current = true;
             setShowGoogleConnectModal(false);
         } catch (error) {
             console.error('Google Sign-In failed:', error);
@@ -427,16 +456,35 @@ export default function BibleTracker() {
         }
     };
 
+    // Load latest cloud state on startup when an existing Google session is detected.
+    useEffect(() => {
+        if (!googleUser || !isClient || hasInitializedCloudState.current) return;
+        syncFromDrive();
+    }, [googleUser, isClient, syncFromDrive]);
+
     // Auto-sync to Drive when data changes (debounced)
     useEffect(() => {
-        if (!googleUser || !isClient || isLoadingFromDrive.current) return; // Skip if loading from Drive
+        if (!googleUser || !isClient || isLoadingFromDrive.current || !hasInitializedCloudState.current) return;
 
         const timeoutId = setTimeout(() => {
             syncToDrive();
         }, 2000); // Debounce for 2 seconds
 
         return () => clearTimeout(timeoutId);
-    }, [startDate, completedItems, language, googleUser, isClient]);
+    }, [startDate, completedItems, language, googleUser, isClient, syncToDrive]);
+
+    // Pull updates from Drive periodically to pick up progress made on other devices.
+    useEffect(() => {
+        if (!googleUser || !isClient || !hasInitializedCloudState.current) return;
+
+        const intervalId = setInterval(() => {
+            if (!isLoadingFromDrive.current) {
+                syncFromDrive(true);
+            }
+        }, 15000);
+
+        return () => clearInterval(intervalId);
+    }, [googleUser, isClient, syncFromDrive]);
 
 
 
@@ -594,7 +642,13 @@ export default function BibleTracker() {
                                     <>
                                         <div className="px-4 py-3 border-b border-[#e6e2d3] bg-[#f6f2e9]">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <img src={googleUser.picture} alt="" className="w-6 h-6 rounded-full" />
+                                                <Image
+                                                    src={googleUser.picture}
+                                                    alt=""
+                                                    width={24}
+                                                    height={24}
+                                                    className="w-6 h-6 rounded-full"
+                                                />
                                                 <span className="text-xs font-bold text-[#4a4036] truncate">{googleUser.name}</span>
                                             </div>
                                             <div className="text-xs text-[#8c7b6c] flex items-center gap-1">
