@@ -22,7 +22,7 @@ export interface BibleTrackerData {
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
 let accessToken: string | null = null;
 type TokenClientWithPromptOverride = google.accounts.oauth2.TokenClient & {
-    requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+    requestAccessToken: (overrideConfig?: { prompt?: 'none' | 'consent' | 'select_account' }) => void;
 };
 
 // Check if Google OAuth is configured
@@ -83,7 +83,7 @@ export const requestAccessToken = (interactive = true): Promise<string> => {
         };
 
         const client = tokenClient as TokenClientWithPromptOverride;
-        client.requestAccessToken(interactive ? {} : { prompt: '' });
+        client.requestAccessToken(interactive ? {} : { prompt: 'none' });
     });
 };
 

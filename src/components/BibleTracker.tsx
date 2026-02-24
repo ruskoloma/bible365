@@ -459,7 +459,7 @@ export default function BibleTracker() {
     // Load latest cloud state on startup when an existing Google session is detected.
     useEffect(() => {
         if (!googleUser || !isClient || hasInitializedCloudState.current) return;
-        syncFromDrive();
+        void syncFromDrive(true);
     }, [googleUser, isClient, syncFromDrive]);
 
     // Auto-sync to Drive when data changes (debounced)
