@@ -25,6 +25,10 @@ type TokenClientWithPromptOverride = google.accounts.oauth2.TokenClient & {
     requestAccessToken: (overrideConfig?: { prompt?: 'none' | 'consent' | 'select_account' }) => void;
 };
 
+interface TokenRequestOptions {
+    allowSilentRefresh?: boolean;
+}
+
 // Check if Google OAuth is configured
 export const isGoogleConfigured = (): boolean => {
     return GOOGLE_CLIENT_ID !== '';
@@ -88,7 +92,9 @@ export const requestAccessToken = (interactive = true): Promise<string> => {
 };
 
 // Get current access token (from memory or localStorage)
-export const getAccessToken = async (): Promise<string | null> => {
+export const getAccessToken = async (options?: TokenRequestOptions): Promise<string | null> => {
+    const allowSilentRefresh = options?.allowSilentRefresh ?? true;
+
     if (accessToken) return accessToken;
 
     const stored = localStorage.getItem('google_access_token');
@@ -101,7 +107,7 @@ export const getAccessToken = async (): Promise<string | null> => {
 
     // Try silent token refresh for previously authorized users.
     // This is needed when the app is opened on another device/session.
-    if (tokenClient) {
+    if (allowSilentRefresh && tokenClient) {
         try {
             return await requestAccessToken(false);
         } catch {
@@ -170,8 +176,8 @@ const findDriveFile = async (token: string): Promise<string | null> => {
 };
 
 // Download progress from Google Drive
-export const downloadProgress = async (): Promise<BibleTrackerData | null> => {
-    const token = await getAccessToken();
+export const downloadProgress = async (options?: TokenRequestOptions): Promise<BibleTrackerData | null> => {
+    const token = await getAccessToken(options);
     if (!token) throw new Error('Not authenticated');
 
     let fileId = localStorage.getItem('drive_file_id');
@@ -200,8 +206,8 @@ export const downloadProgress = async (): Promise<BibleTrackerData | null> => {
 };
 
 // Upload progress to Google Drive
-export const uploadProgress = async (data: BibleTrackerData): Promise<void> => {
-    const token = await getAccessToken();
+export const uploadProgress = async (data: BibleTrackerData, options?: TokenRequestOptions): Promise<void> => {
+    const token = await getAccessToken(options);
     if (!token) throw new Error('Not authenticated');
 
     let fileId = localStorage.getItem('drive_file_id');
@@ -250,8 +256,8 @@ export const uploadProgress = async (data: BibleTrackerData): Promise<void> => {
 };
 
 // Delete progress from Google Drive
-export const deleteProgress = async (): Promise<void> => {
-    const token = await getAccessToken();
+export const deleteProgress = async (options?: TokenRequestOptions): Promise<void> => {
+    const token = await getAccessToken(options);
     if (!token) throw new Error('Not authenticated');
 
     let fileId = localStorage.getItem('drive_file_id');

@@ -311,11 +311,13 @@ export default function BibleTracker() {
     }, [viewDate, startDate, completedItems]);
 
     // Google Drive Sync Functions
-    const syncToDrive = useCallback(async (overrides?: Partial<BibleTrackerData>) => {
+    const syncToDrive = useCallback(async (overrides?: Partial<BibleTrackerData>, isBackground = false) => {
         if (!googleUser) return;
 
-        setIsSyncing(true);
-        setSyncError(null);
+        if (!isBackground) {
+            setIsSyncing(true);
+            setSyncError(null);
+        }
 
         try {
             const timestamp = new Date().toISOString();
@@ -325,14 +327,21 @@ export default function BibleTracker() {
                 language: overrides?.language ?? language,
                 lastSynced: overrides?.lastSynced ?? timestamp,
             };
-            await uploadProgress(data);
+            await uploadProgress(
+                data,
+                isBackground ? { allowSilentRefresh: false } : undefined
+            );
             latestSyncedAt.current = data.lastSynced;
             hasInitializedCloudState.current = true;
         } catch (error) {
             console.error('Sync to Drive failed:', error);
-            setSyncError(language === 'en' ? 'Failed to sync to Google Drive' : 'Ошибка синхронизации с Google Drive');
+            if (!isBackground) {
+                setSyncError(language === 'en' ? 'Failed to sync to Google Drive' : 'Ошибка синхронизации с Google Drive');
+            }
         } finally {
-            setIsSyncing(false);
+            if (!isBackground) {
+                setIsSyncing(false);
+            }
         }
     }, [googleUser, startDate, completedItems, language]);
 
@@ -346,7 +355,9 @@ export default function BibleTracker() {
         }
 
         try {
-            const data = await downloadProgress();
+            const data = await downloadProgress(
+                isBackground ? { allowSilentRefresh: false } : undefined
+            );
             if (data) {
                 if (data.lastSynced && latestSyncedAt.current && data.lastSynced <= latestSyncedAt.current) {
                     return;
@@ -467,7 +478,7 @@ export default function BibleTracker() {
         if (!googleUser || !isClient || isLoadingFromDrive.current || !hasInitializedCloudState.current) return;
 
         const timeoutId = setTimeout(() => {
-            syncToDrive();
+            syncToDrive(undefined, true);
         }, 2000); // Debounce for 2 seconds
 
         return () => clearTimeout(timeoutId);
