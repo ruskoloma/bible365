@@ -81,6 +81,8 @@ export default function BibleTracker() {
     const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
     const [authUsername, setAuthUsername] = useState('');
     const [authPassword, setAuthPassword] = useState('');
+    const [authPasswordRepeat, setAuthPasswordRepeat] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [authError, setAuthError] = useState<string | null>(null);
     const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
     const [pendingChapterCompletion, setPendingChapterCompletion] = useState<{
@@ -348,19 +350,17 @@ export default function BibleTracker() {
     const confirmDeletePlan = async () => {
         try {
             if (accountUser) {
-                await apiRequest('/api/progress', {
-                    method: 'PUT',
-                    body: JSON.stringify({
-                        startDate: null,
-                        completed: [],
-                        language,
-                    }),
+                await apiRequest('/api/auth/account', {
+                    method: 'DELETE',
                 });
+                setAccountUser(null);
+                hasInitializedCloudState.current = false;
+                latestSyncedAt.current = null;
             }
             localStorage.clear();
             window.location.reload();
         } catch (error) {
-            console.error('Failed to delete plan:', error);
+            console.error('Failed to delete account:', error);
         }
     };
 
@@ -556,6 +556,7 @@ export default function BibleTracker() {
             setShowAuthModal(false);
             setAuthError(null);
             setAuthPassword('');
+            setAuthPasswordRepeat('');
         } catch (error) {
             console.error('Account sign-in failed:', error);
             setSyncError(language === 'en' ? 'Failed to connect your account' : 'Ошибка подключения аккаунта');
@@ -569,6 +570,10 @@ export default function BibleTracker() {
         setAuthError(null);
 
         try {
+            if (authMode === 'register' && authPassword !== authPasswordRepeat) {
+                throw new Error(language === 'en' ? 'Passwords do not match' : 'Пароли не совпадают');
+            }
+
             const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
             const response = await apiRequest<{ user: AccountUser }>(endpoint, {
                 method: 'POST',
@@ -869,7 +874,7 @@ export default function BibleTracker() {
                                     onClick={() => { setShowDeletePlanModal(true); setMenuOpen(false); }}
                                     className="w-full text-left px-4 py-3 hover:bg-red-50 text-sm text-red-700"
                                 >
-                                    {language === 'en' ? 'Delete Plan' : 'Удалить план'}
+                                    {language === 'en' ? 'Delete Account' : 'Удалить аккаунт'}
                                 </button>
                             </div>
                         )}
@@ -1050,8 +1055,8 @@ export default function BibleTracker() {
                         </button>
                         <button
                             onClick={handleAuthSubmit}
-                            disabled={isAuthSubmitting || !authUsername.trim() || !authPassword}
-                            className={`px-4 py-2 rounded ${isAuthSubmitting || !authUsername.trim() || !authPassword ? 'bg-[#d8cfbf] text-white cursor-not-allowed' : 'bg-[#8c7b6c] text-white hover:bg-[#7b6b5d]'}`}
+                            disabled={isAuthSubmitting || !authUsername.trim() || !authPassword || (authMode === 'register' && !authPasswordRepeat)}
+                            className={`px-4 py-2 rounded ${isAuthSubmitting || !authUsername.trim() || !authPassword || (authMode === 'register' && !authPasswordRepeat) ? 'bg-[#d8cfbf] text-white cursor-not-allowed' : 'bg-[#8c7b6c] text-white hover:bg-[#7b6b5d]'}`}
                         >
                             {isAuthSubmitting
                                 ? (language === 'en' ? 'Please wait...' : 'Подождите...')
@@ -1080,16 +1085,35 @@ export default function BibleTracker() {
                         className="w-full p-2 border border-[#e6e2d3] rounded font-serif text-[#4a4036]"
                     />
                     <input
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
                         value={authPassword}
                         onChange={(e) => setAuthPassword(e.target.value)}
                         placeholder={language === 'en' ? 'Password' : 'Пароль'}
                         className="w-full p-2 border border-[#e6e2d3] rounded font-serif text-[#4a4036]"
                     />
+                    {authMode === 'register' && (
+                        <input
+                            type={showPassword ? 'text' : 'password'}
+                            value={authPasswordRepeat}
+                            onChange={(e) => setAuthPasswordRepeat(e.target.value)}
+                            placeholder={language === 'en' ? 'Repeat password' : 'Повторите пароль'}
+                            className="w-full p-2 border border-[#e6e2d3] rounded font-serif text-[#4a4036]"
+                        />
+                    )}
+                    <button
+                        onClick={() => setShowPassword((current) => !current)}
+                        className="text-sm text-[#8c7b6c] underline"
+                    >
+                        {showPassword
+                            ? (language === 'en' ? 'Hide password' : 'Скрыть пароль')
+                            : (language === 'en' ? 'Show password' : 'Показать пароль')}
+                    </button>
                     <button
                         onClick={() => {
                             setAuthMode(authMode === 'register' ? 'login' : 'register');
                             setAuthError(null);
+                            setAuthPassword('');
+                            setAuthPasswordRepeat('');
                         }}
                         className="text-sm text-[#8c7b6c] underline"
                     >
@@ -1171,14 +1195,14 @@ export default function BibleTracker() {
             <Modal
                 isOpen={showDeletePlanModal}
                 onClose={() => setShowDeletePlanModal(false)}
-                title={language === 'en' ? 'Delete Plan?' : 'Удалить план?'}
+                title={language === 'en' ? 'Delete Account?' : 'Удалить аккаунт?'}
                 footer={
                     <>
                         <button onClick={() => setShowDeletePlanModal(false)} className="px-4 py-2 text-[#4a4036] hover:bg-[#f6f2e9] rounded">
                             {language === 'en' ? 'Cancel' : 'Отмена'}
                         </button>
                         <button onClick={confirmDeletePlan} className="px-4 py-2 bg-red-800 text-white rounded hover:bg-red-900">
-                            {language === 'en' ? 'Delete Everything' : 'Удалить всё'}
+                            {language === 'en' ? 'Delete Account' : 'Удалить аккаунт'}
                         </button>
                     </>
                 }
@@ -1195,8 +1219,8 @@ export default function BibleTracker() {
                             : 'Это действие:'}
                     </p>
                     <ul className="list-disc list-inside text-[#4a4036] space-y-1 ml-2">
-                        <li>{language === 'en' ? 'Clear your synced progress for this account' : 'Очистит синхронизированный прогресс этого аккаунта'}</li>
-                        <li>{language === 'en' ? 'Keep you signed in' : 'Оставит вас в аккаунте'}</li>
+                        <li>{language === 'en' ? 'Delete your account and synced progress' : 'Удалит ваш аккаунт и синхронизированный прогресс'}</li>
+                        <li>{language === 'en' ? 'Sign you out immediately' : 'Сразу выйдет из аккаунта'}</li>
                         <li>{language === 'en' ? 'Clear all local data' : 'Очистит все локальные данные'}</li>
                         <li>{language === 'en' ? 'Return you to the start page' : 'Вернёт на страницу начала'}</li>
                     </ul>
