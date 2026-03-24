@@ -54,9 +54,17 @@ export default function BibleTracker() {
     const [showDeletePlanModal, setShowDeletePlanModal] = useState(false);
     const [showMarkUpToModal, setShowMarkUpToModal] = useState(false);
     const [showChangeStartDayModal, setShowChangeStartDayModal] = useState(false);
+    const [showCompletePreviousChaptersModal, setShowCompletePreviousChaptersModal] = useState(false);
     const [markUpToDate, setMarkUpToDate] = useState('');
     const [newStartDate, setNewStartDate] = useState('');
     const [scrollToDay, setScrollToDay] = useState<number | null>(null);
+    const [pendingChapterCompletion, setPendingChapterCompletion] = useState<{
+        day: number;
+        idx: number;
+        missingKeys: string[];
+        bookName: string;
+        chapterLabel: string;
+    } | null>(null);
 
     const todayRef = useRef<HTMLDivElement>(null);
     const isLoadingFromDrive = useRef(false); // Track when loading from Drive to prevent auto-sync loops
@@ -70,6 +78,13 @@ export default function BibleTracker() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [showGoogleConnectModal, setShowGoogleConnectModal] = useState(false);
     const [syncError, setSyncError] = useState<string | null>(null);
+
+    const getBookName = useCallback((bookNumber: number, lang: 'en' | 'ru') => {
+        const book = booksData[bookNumber];
+        return lang === 'ru'
+            ? book?.long_ru || book?.short_ru || `#${bookNumber}`
+            : book?.long_en || book?.short_en || `#${bookNumber}`;
+    }, []);
 
     // Initialize from LocalStorage
     useEffect(() => {
@@ -158,15 +173,77 @@ export default function BibleTracker() {
     const expectedCompletedDay = Math.min(planData.plan.length, Math.max(0, targetDay - 1));
     const daysBehind = Math.max(0, expectedCompletedDay - lastFullyCompletedDay);
 
-    const handleToggleItem = (day: number, idx: number) => {
+    const getMissingPreviousChapterKeys = useCallback((reading: ReadingItem) => {
+        if (reading.start_verse || reading.end_verse) {
+            return [];
+        }
+
+        const missingKeys: string[] = [];
+
+        for (const dayPlan of planData.plan) {
+            dayPlan.readings.forEach((item, itemIdx) => {
+                const isSameBook = item.book_number === reading.book_number;
+                const isEarlierChapter = item.end_chapter < reading.start_chapter;
+                const isWholeChapter = !item.start_verse && !item.end_verse;
+
+                if (!isSameBook || !isEarlierChapter || !isWholeChapter) {
+                    return;
+                }
+
+                const key = `${dayPlan.day}-${itemIdx}`;
+                if (!completedItems.has(key)) {
+                    missingKeys.push(key);
+                }
+            });
+        }
+
+        return missingKeys;
+    }, [completedItems]);
+
+    const applyToggleItem = useCallback((day: number, idx: number, extraKeys: string[] = []) => {
         const key = `${day}-${idx}`;
         const newSet = new Set(completedItems);
         if (newSet.has(key)) {
             newSet.delete(key);
         } else {
             newSet.add(key);
+            extraKeys.forEach((extraKey) => newSet.add(extraKey));
         }
         setCompletedItems(newSet);
+    }, [completedItems]);
+
+    const handleToggleItem = (day: number, idx: number) => {
+        const key = `${day}-${idx}`;
+        if (completedItems.has(key)) {
+            applyToggleItem(day, idx);
+            return;
+        }
+
+        const reading = planData.plan.find((plan) => plan.day === day)?.readings[idx];
+        if (!reading) {
+            applyToggleItem(day, idx);
+            return;
+        }
+
+        const missingPreviousChapterKeys = getMissingPreviousChapterKeys(reading);
+
+        if (missingPreviousChapterKeys.length > 0) {
+            const chapterLabel = reading.start_chapter === reading.end_chapter
+                ? `${reading.start_chapter}`
+                : `${reading.start_chapter}-${reading.end_chapter}`;
+
+            setPendingChapterCompletion({
+                day,
+                idx,
+                missingKeys: missingPreviousChapterKeys,
+                bookName: getBookName(reading.book_number, language),
+                chapterLabel,
+            });
+            setShowCompletePreviousChaptersModal(true);
+            return;
+        }
+
+        applyToggleItem(day, idx);
     };
 
     const handleMarkDay = (day: number, readingsCount: number) => {
@@ -192,6 +269,18 @@ export default function BibleTracker() {
             }
         }
         setCompletedItems(newSet);
+    };
+
+    const confirmPendingChapterCompletion = (markPreviousChapters: boolean) => {
+        if (!pendingChapterCompletion) return;
+
+        applyToggleItem(
+            pendingChapterCompletion.day,
+            pendingChapterCompletion.idx,
+            markPreviousChapters ? pendingChapterCompletion.missingKeys : []
+        );
+        setPendingChapterCompletion(null);
+        setShowCompletePreviousChaptersModal(false);
     };
 
     const executeMarkUpTo = () => {
@@ -311,8 +400,13 @@ export default function BibleTracker() {
     }, [viewDate, startDate, completedItems]);
 
     // Google Drive Sync Functions
-    const syncToDrive = useCallback(async (overrides?: Partial<BibleTrackerData>, isBackground = false) => {
-        if (!googleUser) return;
+    const syncToDrive = useCallback(async (
+        overrides?: Partial<BibleTrackerData>,
+        isBackground = false,
+        options?: { user?: GoogleUser | null }
+    ) => {
+        const activeUser = options?.user ?? googleUser;
+        if (!activeUser) return;
 
         if (!isBackground) {
             setIsSyncing(true);
@@ -327,10 +421,7 @@ export default function BibleTracker() {
                 language: overrides?.language ?? language,
                 lastSynced: overrides?.lastSynced ?? timestamp,
             };
-            await uploadProgress(
-                data,
-                isBackground ? { allowSilentRefresh: false } : undefined
-            );
+            await uploadProgress(data);
             latestSyncedAt.current = data.lastSynced;
             hasInitializedCloudState.current = true;
         } catch (error) {
@@ -345,8 +436,9 @@ export default function BibleTracker() {
         }
     }, [googleUser, startDate, completedItems, language]);
 
-    const syncFromDrive = useCallback(async (isBackground = false) => {
-        if (!googleUser) return;
+    const syncFromDrive = useCallback(async (isBackground = false, options?: { user?: GoogleUser | null }) => {
+        const activeUser = options?.user ?? googleUser;
+        if (!activeUser) return;
 
         isLoadingFromDrive.current = true; // Mark that we're loading from Drive
         if (!isBackground) {
@@ -355,9 +447,7 @@ export default function BibleTracker() {
         }
 
         try {
-            const data = await downloadProgress(
-                isBackground ? { allowSilentRefresh: false } : undefined
-            );
+            const data = await downloadProgress();
             if (data) {
                 if (data.lastSynced && latestSyncedAt.current && data.lastSynced <= latestSyncedAt.current) {
                     return;
@@ -414,7 +504,7 @@ export default function BibleTracker() {
                             startDate,
                             completed: Array.from(completedItems),
                             language,
-                        });
+                        }, false, { user });
                     }
                 } else {
                     // No local data, use cloud data
@@ -432,7 +522,7 @@ export default function BibleTracker() {
                     startDate: startDateForUpload,
                     completed: Array.from(completedItems),
                     language,
-                });
+                }, false, { user });
             }
 
             // Clear localStorage since we're now using Google Drive as the source of truth
@@ -470,7 +560,7 @@ export default function BibleTracker() {
     // Load latest cloud state on startup when an existing Google session is detected.
     useEffect(() => {
         if (!googleUser || !isClient || hasInitializedCloudState.current) return;
-        void syncFromDrive(true);
+        void syncFromDrive(true, { user: googleUser });
     }, [googleUser, isClient, syncFromDrive]);
 
     // Auto-sync to Drive when data changes (debounced)
@@ -824,6 +914,37 @@ export default function BibleTracker() {
             </div>
 
             {/* Modals */}
+            <Modal
+                isOpen={showCompletePreviousChaptersModal}
+                onClose={() => {
+                    setPendingChapterCompletion(null);
+                    setShowCompletePreviousChaptersModal(false);
+                }}
+                title={language === 'en' ? 'Complete Earlier Chapters Too?' : 'Отметить предыдущие главы тоже?'}
+                footer={
+                    <>
+                        <button
+                            onClick={() => confirmPendingChapterCompletion(false)}
+                            className="px-4 py-2 text-[#4a4036] hover:bg-[#f6f2e9] rounded"
+                        >
+                            {language === 'en' ? 'Only this chapter' : 'Только эту главу'}
+                        </button>
+                        <button
+                            onClick={() => confirmPendingChapterCompletion(true)}
+                            className="px-4 py-2 bg-[#8c7b6c] text-white rounded hover:bg-[#7b6b5d]"
+                        >
+                            {language === 'en' ? 'Mark previous too' : 'Отметить предыдущие'}
+                        </button>
+                    </>
+                }
+            >
+                <p className="text-[#4a4036]">
+                    {language === 'en'
+                        ? `You marked ${pendingChapterCompletion?.bookName} ${pendingChapterCompletion?.chapterLabel}, but some earlier chapters in this book are still incomplete. Do you want to mark those previous chapters as completed too?`
+                        : `Вы отметили ${pendingChapterCompletion?.bookName} ${pendingChapterCompletion?.chapterLabel}, но некоторые предыдущие главы этой книги ещё не отмечены. Отметить предыдущие главы тоже?`}
+                </p>
+            </Modal>
+
             <Modal
                 isOpen={showResetModal}
                 onClose={() => setShowResetModal(false)}
