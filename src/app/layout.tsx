@@ -16,7 +16,7 @@ const crimsonText = Crimson_Text({
 
 export const metadata: Metadata = {
   title: "Bible365 - Your Daily Bible Reading Tracker",
-  description: "Track your bible reading progress with Bible365. Sync across devices with Google Drive.",
+  description: "Track your Bible reading progress with Bible365 and sync it across devices with a simple account.",
   manifest: "/site.webmanifest",
   icons: {
     icon: [

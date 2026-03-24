@@ -1,22 +1,22 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import Image from 'next/image';
 import planDataRaw from '@/data/plan.json';
 import booksDataRaw from '@/data/books.json';
 import { PlanData, BookMap, ReadingItem } from '@/types';
 import Modal from './Modal';
-import {
-    initGoogleAuth,
-    signInWithGoogle,
-    signOut,
-    getStoredUser,
-    downloadProgress,
-    uploadProgress,
-    deleteProgress,
-    type GoogleUser,
-    type BibleTrackerData,
-} from '@/lib/googleAuth';
+
+interface AccountUser {
+    id: number;
+    username: string;
+}
+
+interface BibleTrackerData {
+    startDate: string | null;
+    completed: string[];
+    language: 'en' | 'ru';
+    lastSynced: string;
+}
 
 // Cast imports to types
 const planData = planDataRaw as unknown as PlanData;
@@ -38,6 +38,25 @@ const parseLocalDate = (dateStr: string) => {
     return new Date(y, m - 1, d);
 };
 
+const apiRequest = async <T,>(url: string, options?: RequestInit): Promise<T> => {
+    const response = await fetch(url, {
+        ...options,
+        credentials: 'include',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(options?.headers || {}),
+        },
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.error || 'Request failed');
+    }
+
+    return data as T;
+};
+
 export default function BibleTracker() {
     const [isClient, setIsClient] = useState(false);
     const [startDate, setStartDate] = useState<string | null>(null);
@@ -55,9 +74,15 @@ export default function BibleTracker() {
     const [showMarkUpToModal, setShowMarkUpToModal] = useState(false);
     const [showChangeStartDayModal, setShowChangeStartDayModal] = useState(false);
     const [showCompletePreviousChaptersModal, setShowCompletePreviousChaptersModal] = useState(false);
+    const [showAuthModal, setShowAuthModal] = useState(false);
     const [markUpToDate, setMarkUpToDate] = useState('');
     const [newStartDate, setNewStartDate] = useState('');
     const [scrollToDay, setScrollToDay] = useState<number | null>(null);
+    const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
+    const [authUsername, setAuthUsername] = useState('');
+    const [authPassword, setAuthPassword] = useState('');
+    const [authError, setAuthError] = useState<string | null>(null);
+    const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
     const [pendingChapterCompletion, setPendingChapterCompletion] = useState<{
         day: number;
         idx: number;
@@ -67,16 +92,15 @@ export default function BibleTracker() {
     } | null>(null);
 
     const todayRef = useRef<HTMLDivElement>(null);
-    const isLoadingFromDrive = useRef(false); // Track when loading from Drive to prevent auto-sync loops
+    const isLoadingFromDrive = useRef(false); // Track when loading synced state to prevent save loops
     const hasInitializedCloudState = useRef(false);
     const latestSyncedAt = useRef<string | null>(null);
     const [setupDate, setSetupDate] = useState<string>('');
 
-    // Google Auth State
-    const [googleUser, setGoogleUser] = useState<GoogleUser | null>(null);
-    const [isGoogleReady, setIsGoogleReady] = useState(false);
+    // Account Sync State
+    const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
-    const [showGoogleConnectModal, setShowGoogleConnectModal] = useState(false);
     const [syncError, setSyncError] = useState<string | null>(null);
 
     const getBookName = useCallback((bookNumber: number, lang: 'en' | 'ru') => {
@@ -101,18 +125,15 @@ export default function BibleTracker() {
         if (storedCompleted) setCompletedItems(new Set(JSON.parse(storedCompleted)));
         if (storedLang) setLanguage(storedLang as 'en' | 'ru');
 
-        // Initialize Google Auth
-        initGoogleAuth()
-            .then(() => {
-                setIsGoogleReady(true);
-                // Check if user was previously signed in
-                const user = getStoredUser();
-                if (user) {
-                    setGoogleUser(user);
-                }
+        void apiRequest<{ user: AccountUser | null }>('/api/auth/me')
+            .then((data) => {
+                setAccountUser(data.user);
             })
             .catch((err) => {
-                console.error('Failed to initialize Google Auth:', err);
+                console.error('Failed to load current session:', err);
+            })
+            .finally(() => {
+                setIsAuthReady(true);
             });
     }, []);
 
@@ -314,11 +335,10 @@ export default function BibleTracker() {
     };
 
     const confirmResetProgress = () => {
-        // Clear only completed items, keep startDate and Google connection
+        // Clear only completed items, keep startDate and account sync
         setCompletedItems(new Set());
         setShowResetProgressModal(false);
-        // Sync to Google Drive if connected
-        if (googleUser) {
+        if (accountUser) {
             void syncToDrive({
                 completed: [],
             });
@@ -327,15 +347,17 @@ export default function BibleTracker() {
 
     const confirmDeletePlan = async () => {
         try {
-            // Delete from Google Drive if connected
-            if (googleUser) {
-                await deleteProgress();
-                signOut();
-                setGoogleUser(null);
+            if (accountUser) {
+                await apiRequest('/api/progress', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        startDate: null,
+                        completed: [],
+                        language,
+                    }),
+                });
             }
-            // Clear all local data
             localStorage.clear();
-            // Redirect to start page
             window.location.reload();
         } catch (error) {
             console.error('Failed to delete plan:', error);
@@ -347,8 +369,7 @@ export default function BibleTracker() {
             setStartDate(newStartDate);
             setShowChangeStartDayModal(false);
             setNewStartDate('');
-            // Sync to Google Drive if connected
-            if (googleUser) {
+            if (accountUser) {
                 void syncToDrive({
                     startDate: newStartDate,
                 });
@@ -399,13 +420,13 @@ export default function BibleTracker() {
         return daysList;
     }, [viewDate, startDate, completedItems]);
 
-    // Google Drive Sync Functions
+    // Account Sync Functions
     const syncToDrive = useCallback(async (
         overrides?: Partial<BibleTrackerData>,
         isBackground = false,
-        options?: { user?: GoogleUser | null }
+        options?: { user?: AccountUser | null }
     ) => {
-        const activeUser = options?.user ?? googleUser;
+        const activeUser = options?.user ?? accountUser;
         if (!activeUser) return;
 
         if (!isBackground) {
@@ -421,33 +442,41 @@ export default function BibleTracker() {
                 language: overrides?.language ?? language,
                 lastSynced: overrides?.lastSynced ?? timestamp,
             };
-            await uploadProgress(data);
-            latestSyncedAt.current = data.lastSynced;
+            const response = await apiRequest<{ progress: BibleTrackerData }>('/api/progress', {
+                method: 'PUT',
+                body: JSON.stringify(data),
+            });
+            latestSyncedAt.current = response.progress.lastSynced;
             hasInitializedCloudState.current = true;
         } catch (error) {
-            console.error('Sync to Drive failed:', error);
+            console.error('Sync to server failed:', error);
+            if (error instanceof Error && error.message === 'Unauthorized') {
+                setAccountUser(null);
+                hasInitializedCloudState.current = false;
+            }
             if (!isBackground) {
-                setSyncError(language === 'en' ? 'Failed to sync to Google Drive' : 'Ошибка синхронизации с Google Drive');
+                setSyncError(language === 'en' ? 'Failed to sync your account' : 'Ошибка синхронизации аккаунта');
             }
         } finally {
             if (!isBackground) {
                 setIsSyncing(false);
             }
         }
-    }, [googleUser, startDate, completedItems, language]);
+    }, [accountUser, startDate, completedItems, language]);
 
-    const syncFromDrive = useCallback(async (isBackground = false, options?: { user?: GoogleUser | null }) => {
-        const activeUser = options?.user ?? googleUser;
+    const syncFromDrive = useCallback(async (isBackground = false, options?: { user?: AccountUser | null }) => {
+        const activeUser = options?.user ?? accountUser;
         if (!activeUser) return;
 
-        isLoadingFromDrive.current = true; // Mark that we're loading from Drive
+        isLoadingFromDrive.current = true; // Mark that we're loading synced state
         if (!isBackground) {
             setIsSyncing(true);
             setSyncError(null);
         }
 
         try {
-            const data = await downloadProgress();
+            const response = await apiRequest<{ progress: BibleTrackerData | null }>('/api/progress');
+            const data = response.progress;
             if (data) {
                 if (data.lastSynced && latestSyncedAt.current && data.lastSynced <= latestSyncedAt.current) {
                     return;
@@ -461,9 +490,13 @@ export default function BibleTracker() {
                 setStartDate(todayIso);
             }
         } catch (error) {
-            console.error('Sync from Drive failed:', error);
+            console.error('Sync from server failed:', error);
+            if (error instanceof Error && error.message === 'Unauthorized') {
+                setAccountUser(null);
+                hasInitializedCloudState.current = false;
+            }
             if (!isBackground) {
-                setSyncError(language === 'en' ? 'Failed to load from Google Drive' : 'Ошибка загрузки из Google Drive');
+                setSyncError(language === 'en' ? 'Failed to load your account data' : 'Ошибка загрузки данных аккаунта');
             }
         } finally {
             hasInitializedCloudState.current = true;
@@ -475,31 +508,28 @@ export default function BibleTracker() {
                 isLoadingFromDrive.current = false;
             }, 100);
         }
-    }, [googleUser, startDate, language]);
+    }, [accountUser, startDate, language]);
 
-    const handleGoogleSignIn = async () => {
+    const handleAuthenticatedUser = async (user: AccountUser) => {
         try {
             setIsSyncing(true);
-            const user = await signInWithGoogle();
-            setGoogleUser(user);
-
-            // Try to download existing progress from Drive
-            const driveData = await downloadProgress();
+            setAccountUser(user);
+            const response = await apiRequest<{ progress: BibleTrackerData | null }>('/api/progress');
+            const driveData = response.progress;
 
             if (driveData && driveData.startDate) {
-                // Ask user if they want to use cloud data or keep local
                 if (startDate) {
                     const useCloud = window.confirm(
                         language === 'en'
-                            ? 'Found existing progress in Google Drive. Do you want to use it? (Cancel to keep local progress)'
-                            : 'Найден прогресс в Google Drive. Использовать его? (Отмена - сохранить локальный прогресс)'
+                            ? 'Found existing synced progress for this account. Do you want to use it? (Cancel to keep your current local progress)'
+                            : 'Для этого аккаунта найден сохранённый прогресс. Использовать его? (Отмена - сохранить текущий локальный прогресс)'
                     );
                     if (useCloud) {
                         setStartDate(driveData.startDate);
                         setCompletedItems(new Set(driveData.completed));
                         setLanguage(driveData.language);
+                        latestSyncedAt.current = driveData.lastSynced || null;
                     } else {
-                        // Upload local progress to Drive
                         await syncToDrive({
                             startDate,
                             completed: Array.from(completedItems),
@@ -507,17 +537,14 @@ export default function BibleTracker() {
                         }, false, { user });
                     }
                 } else {
-                    // No local data, use cloud data
                     setStartDate(driveData.startDate);
                     setCompletedItems(new Set(driveData.completed));
                     setLanguage(driveData.language);
                     latestSyncedAt.current = driveData.lastSynced || null;
                 }
             } else {
-                // No cloud data - if no local startDate, set to today
                 const startDateForUpload = startDate || new Date().toISOString().split('T')[0];
                 if (!startDate) setStartDate(startDateForUpload);
-                // Upload current state to Drive
                 await syncToDrive({
                     startDate: startDateForUpload,
                     completed: Array.from(completedItems),
@@ -525,58 +552,76 @@ export default function BibleTracker() {
                 }, false, { user });
             }
 
-            // Clear localStorage since we're now using Google Drive as the source of truth
-            localStorage.removeItem('bible_startDate');
-            localStorage.removeItem('bible_completed');
-            localStorage.removeItem('bible_lang');
-
             hasInitializedCloudState.current = true;
-            setShowGoogleConnectModal(false);
+            setShowAuthModal(false);
+            setAuthError(null);
+            setAuthPassword('');
         } catch (error) {
-            console.error('Google Sign-In failed:', error);
-            setSyncError(language === 'en' ? 'Failed to sign in with Google' : 'Ошибка входа через Google');
+            console.error('Account sign-in failed:', error);
+            setSyncError(language === 'en' ? 'Failed to connect your account' : 'Ошибка подключения аккаунта');
         } finally {
             setIsSyncing(false);
         }
     };
 
-    const handleGoogleSignOut = async () => {
+    const handleAuthSubmit = async () => {
+        setIsAuthSubmitting(true);
+        setAuthError(null);
+
         try {
-            // Sync current progress to Drive before signing out
-            if (googleUser) {
+            const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+            const response = await apiRequest<{ user: AccountUser }>(endpoint, {
+                method: 'POST',
+                body: JSON.stringify({
+                    username: authUsername,
+                    password: authPassword,
+                }),
+            });
+            await handleAuthenticatedUser(response.user);
+        } catch (error) {
+            setAuthError(error instanceof Error ? error.message : 'Authentication failed');
+        } finally {
+            setIsAuthSubmitting(false);
+        }
+    };
+
+    const handleAccountSignOut = async () => {
+        try {
+            if (accountUser) {
                 await syncToDrive();
             }
-            // Sign out from Google
-            signOut();
-            setGoogleUser(null);
-            // Clear local data and redirect to start page
-            localStorage.clear();
-            window.location.reload();
+            await apiRequest('/api/auth/logout', {
+                method: 'POST',
+                body: JSON.stringify({}),
+            });
+            setAccountUser(null);
+            hasInitializedCloudState.current = false;
+            latestSyncedAt.current = null;
         } catch (error) {
             console.error('Failed to sign out:', error);
         }
     };
 
-    // Load latest cloud state on startup when an existing Google session is detected.
+    // Load latest cloud state on startup when an existing session is detected.
     useEffect(() => {
-        if (!googleUser || !isClient || hasInitializedCloudState.current) return;
-        void syncFromDrive(true, { user: googleUser });
-    }, [googleUser, isClient, syncFromDrive]);
+        if (!accountUser || !isClient || hasInitializedCloudState.current) return;
+        void syncFromDrive(true, { user: accountUser });
+    }, [accountUser, isClient, syncFromDrive]);
 
-    // Auto-sync to Drive when data changes (debounced)
+    // Auto-sync when data changes (debounced)
     useEffect(() => {
-        if (!googleUser || !isClient || isLoadingFromDrive.current || !hasInitializedCloudState.current) return;
+        if (!accountUser || !isClient || isLoadingFromDrive.current || !hasInitializedCloudState.current) return;
 
         const timeoutId = setTimeout(() => {
             syncToDrive(undefined, true);
         }, 2000); // Debounce for 2 seconds
 
         return () => clearTimeout(timeoutId);
-    }, [startDate, completedItems, language, googleUser, isClient, syncToDrive]);
+    }, [startDate, completedItems, language, accountUser, isClient, syncToDrive]);
 
-    // Pull updates from Drive periodically to pick up progress made on other devices.
+    // Pull updates periodically to pick up progress made on other devices.
     useEffect(() => {
-        if (!googleUser || !isClient || !hasInitializedCloudState.current) return;
+        if (!accountUser || !isClient || !hasInitializedCloudState.current) return;
 
         const intervalId = setInterval(() => {
             if (!isLoadingFromDrive.current) {
@@ -585,7 +630,7 @@ export default function BibleTracker() {
         }, 15000);
 
         return () => clearInterval(intervalId);
-    }, [googleUser, isClient, syncFromDrive]);
+    }, [accountUser, isClient, syncFromDrive]);
 
 
 
@@ -646,10 +691,10 @@ export default function BibleTracker() {
                         onClick={() => setupDate && setStartDate(setupDate)}
                         className={`w-full py-3 rounded font-bold transition-all mb-3 ${setupDate ? 'bg-[#8c7b6c] text-white hover:bg-[#7b6b5d]' : 'bg-[#e6e2d3] text-[#8c7b6c] cursor-not-allowed'}`}
                     >
-                        {language === 'en' ? 'Start Reading (Local Only)' : 'Начать чтение (Только локально)'}
+                        {language === 'en' ? 'Start Reading' : 'Начать чтение'}
                     </button>
 
-                    {isGoogleReady && (
+                    {isAuthReady && (
                         <>
                             <div className="relative my-4">
                                 <div className="absolute inset-0 flex items-center">
@@ -664,13 +709,14 @@ export default function BibleTracker() {
 
                             <button
                                 disabled={isSyncing}
-                                onClick={async () => {
+                                onClick={() => {
                                     if (setupDate) {
                                         setStartDate(setupDate);
                                     }
-                                    await handleGoogleSignIn();
+                                    setAuthMode('register');
+                                    setShowAuthModal(true);
                                 }}
-                                className={`w-full py-3 rounded font-bold transition-all flex items-center justify-center gap-2 ${isSyncing ? 'bg-[#f6f2e9] text-[#8c7b6c] cursor-not-allowed border-2 border-[#e6e2d3]' : 'bg-white text-[#4a4036] border-2 border-[#e6e2d3] hover:border-[#8c7b6c]'}`}
+                                className={`w-full py-3 rounded font-bold transition-all flex items-center justify-center gap-2 mb-3 ${isSyncing ? 'bg-[#f6f2e9] text-[#8c7b6c] cursor-not-allowed border-2 border-[#e6e2d3]' : 'bg-white text-[#4a4036] border-2 border-[#e6e2d3] hover:border-[#8c7b6c]'}`}
                             >
                                 {isSyncing ? (
                                     <>
@@ -678,25 +724,30 @@ export default function BibleTracker() {
                                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
                                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                         </svg>
-                                        {language === 'en' ? 'Signing in...' : 'Вход...'}
+                                        {language === 'en' ? 'Opening account...' : 'Открываем аккаунт...'}
                                     </>
                                 ) : (
-                                    <>
-                                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4" />
-                                            <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.837.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9.003 18z" fill="#34A853" />
-                                            <path d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05" />
-                                            <path d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.426 0 9.003 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29c.708-2.127 2.692-3.71 5.036-3.71z" fill="#EA4335" />
-                                        </svg>
-                                        {language === 'en' ? 'Start with Google Drive' : 'Начать с Google Drive'}
-                                    </>
+                                    <>{language === 'en' ? 'Create Account & Sync' : 'Создать аккаунт и синхронизировать'}</>
                                 )}
+                            </button>
+
+                            <button
+                                onClick={() => {
+                                    if (setupDate) {
+                                        setStartDate(setupDate);
+                                    }
+                                    setAuthMode('login');
+                                    setShowAuthModal(true);
+                                }}
+                                className="w-full py-3 rounded font-bold transition-all bg-[#f6f2e9] text-[#4a4036] border border-[#e6e2d3] hover:border-[#8c7b6c]"
+                            >
+                                {language === 'en' ? 'Sign In to Existing Account' : 'Войти в существующий аккаунт'}
                             </button>
 
                             <p className="text-xs text-[#8c7b6c] mt-3 text-center">
                                 {language === 'en'
-                                    ? 'Google Drive keeps your progress synced across devices'
-                                    : 'Google Drive синхронизирует прогресс между устройствами'}
+                                    ? 'Your account keeps progress synced quietly across devices'
+                                    : 'Аккаунт тихо синхронизирует прогресс между устройствами'}
                             </p>
                         </>
                     )}
@@ -739,19 +790,10 @@ export default function BibleTracker() {
                         </button>
                         {menuOpen && (
                             <div className="absolute right-0 top-10 w-48 bg-white border border-[#e6e2d3] shadow-lg rounded z-20 overflow-hidden">
-                                {googleUser ? (
+                                {accountUser ? (
                                     <>
                                         <div className="px-4 py-3 border-b border-[#e6e2d3] bg-[#f6f2e9]">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <Image
-                                                    src={googleUser.picture}
-                                                    alt=""
-                                                    width={24}
-                                                    height={24}
-                                                    className="w-6 h-6 rounded-full"
-                                                />
-                                                <span className="text-xs font-bold text-[#4a4036] truncate">{googleUser.name}</span>
-                                            </div>
+                                            <div className="text-xs font-bold text-[#4a4036] truncate mb-1">{accountUser.username}</div>
                                             <div className="text-xs text-[#8c7b6c] flex items-center gap-1">
                                                 {isSyncing ? (
                                                     <>
@@ -778,27 +820,25 @@ export default function BibleTracker() {
                                             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                             </svg>
-                                            {language === 'en' ? 'Sync from Drive' : 'Загрузить из Drive'}
+                                            {language === 'en' ? 'Sync Now' : 'Синхронизировать'}
                                         </button>
                                         <button
-                                            onClick={() => { handleGoogleSignOut(); setMenuOpen(false); }}
+                                            onClick={() => { handleAccountSignOut(); setMenuOpen(false); }}
                                             className="w-full text-left px-4 py-3 hover:bg-[#f6f2e9] text-sm text-[#4a4036] border-b border-[#e6e2d3]"
                                         >
-                                            {language === 'en' ? 'Sign out from Google' : 'Выйти из Google'}
+                                            {language === 'en' ? 'Sign Out' : 'Выйти'}
                                         </button>
                                     </>
-                                ) : isGoogleReady && (
+                                ) : isAuthReady && (
                                     <button
-                                        onClick={() => { setShowGoogleConnectModal(true); setMenuOpen(false); }}
+                                        onClick={() => {
+                                            setAuthMode('register');
+                                            setShowAuthModal(true);
+                                            setMenuOpen(false);
+                                        }}
                                         className="w-full text-left px-4 py-3 hover:bg-[#f6f2e9] text-sm text-[#4a4036] border-b border-[#e6e2d3] flex items-center gap-2"
                                     >
-                                        <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4" />
-                                            <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.837.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9.003 18z" fill="#34A853" />
-                                            <path d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05" />
-                                            <path d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.426 0 9.003 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29c.708-2.127 2.692-3.71 5.036-3.71z" fill="#EA4335" />
-                                        </svg>
-                                        {language === 'en' ? 'Connect Google Drive' : 'Подключить Google Drive'}
+                                        {language === 'en' ? 'Create Sync Account' : 'Создать аккаунт синхронизации'}
                                     </button>
                                 )}
                                 <button
@@ -998,48 +1038,73 @@ export default function BibleTracker() {
             </Modal>
 
             <Modal
-                isOpen={showGoogleConnectModal}
-                onClose={() => setShowGoogleConnectModal(false)}
-                title={language === 'en' ? 'Connect Google Drive' : 'Подключить Google Drive'}
+                isOpen={showAuthModal}
+                onClose={() => setShowAuthModal(false)}
+                title={authMode === 'register'
+                    ? (language === 'en' ? 'Create Sync Account' : 'Создать аккаунт синхронизации')
+                    : (language === 'en' ? 'Sign In' : 'Войти')}
                 footer={
                     <>
-                        <button onClick={() => setShowGoogleConnectModal(false)} className="px-4 py-2 text-[#4a4036] hover:bg-[#f6f2e9] rounded">
+                        <button onClick={() => setShowAuthModal(false)} className="px-4 py-2 text-[#4a4036] hover:bg-[#f6f2e9] rounded">
                             {language === 'en' ? 'Cancel' : 'Отмена'}
                         </button>
                         <button
-                            onClick={handleGoogleSignIn}
-                            className="px-4 py-2 bg-[#8c7b6c] text-white rounded hover:bg-[#7b6b5d] flex items-center gap-2"
+                            onClick={handleAuthSubmit}
+                            disabled={isAuthSubmitting || !authUsername.trim() || !authPassword}
+                            className={`px-4 py-2 rounded ${isAuthSubmitting || !authUsername.trim() || !authPassword ? 'bg-[#d8cfbf] text-white cursor-not-allowed' : 'bg-[#8c7b6c] text-white hover:bg-[#7b6b5d]'}`}
                         >
-                            <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4" />
-                                <path d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.837.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9.003 18z" fill="#34A853" />
-                                <path d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05" />
-                                <path d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.426 0 9.003 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29c.708-2.127 2.692-3.71 5.036-3.71z" fill="#EA4335" />
-                            </svg>
-                            {language === 'en' ? 'Connect' : 'Подключить'}
+                            {isAuthSubmitting
+                                ? (language === 'en' ? 'Please wait...' : 'Подождите...')
+                                : authMode === 'register'
+                                    ? (language === 'en' ? 'Create Account' : 'Создать аккаунт')
+                                    : (language === 'en' ? 'Sign In' : 'Войти')}
                         </button>
                     </>
                 }
             >
                 <div className="space-y-4">
                     <p className="text-[#4a4036]">
-                        {language === 'en'
-                            ? 'Connect your Google account to automatically backup and sync your reading progress across all your devices.'
-                            : 'Подключите Google аккаунт для автоматического резервного копирования и синхронизации прогресса чтения на всех устройствах.'}
+                        {authMode === 'register'
+                            ? (language === 'en'
+                                ? 'Create a simple account to keep your reading progress synced across devices without Google popups.'
+                                : 'Создайте простой аккаунт, чтобы синхронизировать прогресс между устройствами без всплывающих окон Google.')
+                            : (language === 'en'
+                                ? 'Sign in to your existing account and continue syncing in the background.'
+                                : 'Войдите в существующий аккаунт и продолжайте синхронизацию в фоне.')}
                     </p>
-                    <div className="bg-[#f6f2e9] p-3 rounded text-sm text-[#4a4036]">
-                        <p className="font-bold mb-1">
-                            {language === 'en' ? '✓ Benefits:' : '✓ Преимущества:'}
-                        </p>
-                        <ul className="list-disc list-inside space-y-1 text-[#8c7b6c]">
-                            <li>{language === 'en' ? 'Automatic cloud backup' : 'Автоматическое облачное резервное копирование'}</li>
-                            <li>{language === 'en' ? 'Sync across devices' : 'Синхронизация между устройствами'}</li>
-                            <li>{language === 'en' ? 'Never lose your progress' : 'Никогда не потеряете прогресс'}</li>
-                        </ul>
-                    </div>
+                    <input
+                        type="text"
+                        value={authUsername}
+                        onChange={(e) => setAuthUsername(e.target.value)}
+                        placeholder={language === 'en' ? 'Username' : 'Имя пользователя'}
+                        className="w-full p-2 border border-[#e6e2d3] rounded font-serif text-[#4a4036]"
+                    />
+                    <input
+                        type="password"
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        placeholder={language === 'en' ? 'Password' : 'Пароль'}
+                        className="w-full p-2 border border-[#e6e2d3] rounded font-serif text-[#4a4036]"
+                    />
+                    <button
+                        onClick={() => {
+                            setAuthMode(authMode === 'register' ? 'login' : 'register');
+                            setAuthError(null);
+                        }}
+                        className="text-sm text-[#8c7b6c] underline"
+                    >
+                        {authMode === 'register'
+                            ? (language === 'en' ? 'Already have an account? Sign in' : 'Уже есть аккаунт? Войти')
+                            : (language === 'en' ? 'Need an account? Create one' : 'Нужен аккаунт? Создать')}
+                    </button>
                     {syncError && (
                         <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
                             {syncError}
+                        </div>
+                    )}
+                    {authError && (
+                        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                            {authError}
                         </div>
                     )}
                 </div>
@@ -1098,8 +1163,8 @@ export default function BibleTracker() {
             >
                 <p className="text-[#4a4036]">
                     {language === 'en'
-                        ? 'This will clear all your reading progress (checkboxes), but keep your start date and Google Drive connection.'
-                        : 'Это очистит весь прогресс чтения (галочки), но сохранит дату начала и подключение к Google Drive.'}
+                        ? 'This will clear all your reading progress (checkboxes), but keep your start date and sync account.'
+                        : 'Это очистит весь прогресс чтения (галочки), но сохранит дату начала и аккаунт синхронизации.'}
                 </p>
             </Modal>
 
@@ -1130,8 +1195,8 @@ export default function BibleTracker() {
                             : 'Это действие:'}
                     </p>
                     <ul className="list-disc list-inside text-[#4a4036] space-y-1 ml-2">
-                        <li>{language === 'en' ? 'Delete your progress from Google Drive' : 'Удалит прогресс из Google Drive'}</li>
-                        <li>{language === 'en' ? 'Sign you out from Google' : 'Выйдет из Google аккаунта'}</li>
+                        <li>{language === 'en' ? 'Clear your synced progress for this account' : 'Очистит синхронизированный прогресс этого аккаунта'}</li>
+                        <li>{language === 'en' ? 'Keep you signed in' : 'Оставит вас в аккаунте'}</li>
                         <li>{language === 'en' ? 'Clear all local data' : 'Очистит все локальные данные'}</li>
                         <li>{language === 'en' ? 'Return you to the start page' : 'Вернёт на страницу начала'}</li>
                     </ul>
